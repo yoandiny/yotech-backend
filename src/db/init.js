@@ -1,4 +1,5 @@
 import { query } from '../config/db.js';
+import bcrypt from 'bcryptjs';
 
 const initDb = async () => {
   try {
@@ -18,9 +19,20 @@ const initDb = async () => {
     const result = await query('SELECT * FROM users WHERE username = $1', ['admin']);
     if (result.rows.length === 0) {
       console.log('Creating default admin user...');
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash('yotech2025', salt);
       await query(
         'INSERT INTO users (username, password) VALUES ($1, $2)',
-        ['admin', 'yotech2025'] // In a real app, this should be hashed
+        ['admin', hashedPassword]
+      );
+    } else {
+      // Re-hash the password in case it's stored as plain text
+      console.log('Updating existing admin user password hash...');
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash('yotech2025', salt);
+      await query(
+        'UPDATE users SET password = $1 WHERE username = $2',
+        [hashedPassword, 'admin']
       );
     }
     
