@@ -2,10 +2,13 @@ version: '3.8'
 
 services:
   backend:
-    build: .
+    build:
+      context: .
+      args:
+        - PORT=${PORT:-3001}
     container_name: yotech-backend
     ports:
-      - "3001:3001"
+      - "${PORT:-3001}:${PORT:-3001}"
     env_file:
       - .env
     environment:

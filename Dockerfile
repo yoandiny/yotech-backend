@@ -13,8 +13,12 @@ RUN npm install --omit=dev
 # Copier le reste du code source
 COPY . .
 
+# Définir le port par défaut (peut être surchargé à la construction)
+ARG PORT=3001
+ENV PORT=${PORT}
+
 # Exposer le port sur lequel l'application s'exécute
-EXPOSE 3001
+EXPOSE ${PORT}
 
 # Commande pour démarrer l'application
 CMD ["npm", "start"]

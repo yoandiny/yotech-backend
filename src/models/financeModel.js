@@ -39,13 +39,13 @@ export const FinanceModel = {
   },
 
   addTransaction: async (data) => {
-    const { label, amount, type, date } = data;
+    const { description, amount, type, date } = data;
     const sql = `
-      INSERT INTO finances (label_transaction, amount, type_transaction, date_transaction)
+      INSERT INTO finances (description, amount, type_transaction, date_transaction)
       VALUES ($1, $2, $3, $4)
       RETURNING *
     `;
-    const result = await query(sql, [label, amount, type, date || new Date()]);
+    const result = await query(sql, [description, amount, type, date || new Date()]);
     return result.rows[0];
   },
 
