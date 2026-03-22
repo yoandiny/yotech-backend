@@ -14,6 +14,28 @@ const initDb = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Create enum for priority if it doesn't exist
+    await query(`
+      DO $$ BEGIN
+          CREATE TYPE priority_enum AS ENUM ('LOW', 'MEDIUM', 'HIGH');
+      EXCEPTION
+          WHEN duplicate_object THEN null;
+      END $$;
+    `);
+
+    // Create todos table
+    await query(`
+      CREATE TABLE IF NOT EXISTS todos (
+          id SERIAL PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          description TEXT,
+          status VARCHAR(50) NOT NULL,
+          priority priority_enum NOT NULL DEFAULT 'MEDIUM',
+          due_date DATE,
+          client_name VARCHAR(255)
+      )
+    `);
     
     // Check if admin user exists, if not create one
     const result = await query('SELECT * FROM users WHERE username = $1', ['admin']);
