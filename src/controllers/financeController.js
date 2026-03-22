@@ -2,13 +2,25 @@ import { FinanceModel } from '../models/financeModel.js';
 
 export const getStats = async (req, res) => {
   try {
-    const stats = await FinanceModel.getStats();
-    const recentTransactions = await FinanceModel.getRecentTransactions();
+    const { year, startDate, endDate } = req.query;
+    const currentYear = year || new Date().getFullYear();
+    
+    const [stats, overallStats, recentTransactions] = await Promise.all([
+      FinanceModel.getStats(currentYear, startDate, endDate),
+      FinanceModel.getOverallStats(),
+      FinanceModel.getRecentTransactions(10, currentYear)
+    ]);
+
     res.json({
       stats: {
         totalIncome: parseFloat(stats.total_income || 0),
         totalExpenses: parseFloat(stats.total_expenses || 0),
         netProfit: parseFloat(stats.net_profit || 0)
+      },
+      overallStats: {
+        totalIncome: parseFloat(overallStats.total_income || 0),
+        totalExpenses: parseFloat(overallStats.total_expenses || 0),
+        netProfit: parseFloat(overallStats.net_profit || 0)
       },
       recentTransactions
     });
@@ -51,6 +63,28 @@ export const getHistory = async (req, res) => {
     res.json(history);
   } catch (error) {
     console.error('Error fetching history:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+export const getGoal = async (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const goal = await FinanceModel.getGoal(year);
+    res.json(goal || { year, goal_amount: 0 });
+  } catch (error) {
+    console.error('Error fetching goal:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+export const setGoal = async (req, res) => {
+  try {
+    const { year, goal_amount } = req.body;
+    const goal = await FinanceModel.setGoal(year, goal_amount);
+    res.json(goal);
+  } catch (error) {
+    console.error('Error setting goal:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };

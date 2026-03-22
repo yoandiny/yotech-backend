@@ -1,7 +1,39 @@
 import { query } from '../config/db.js';
 
 export const FinanceModel = {
-  getStats: async () => {
+  getStats: async (year, startDate, endDate) => {
+    let sql = `
+      SELECT 
+        SUM(CASE WHEN type_transaction = 'revenu' THEN amount ELSE 0 END) as total_income,
+        SUM(CASE WHEN type_transaction = 'dépense' THEN amount ELSE 0 END) as total_expenses,
+        SUM(CASE WHEN type_transaction = 'revenu' THEN amount ELSE -amount END) as net_profit
+      FROM finances
+    `;
+    const params = [];
+    let whereClause = [];
+
+    if (year) {
+      params.push(year);
+      whereClause.push(`EXTRACT(YEAR FROM date_transaction) = $${params.length}`);
+    }
+    if (startDate) {
+      params.push(startDate);
+      whereClause.push(`date_transaction >= $${params.length}`);
+    }
+    if (endDate) {
+      params.push(endDate);
+      whereClause.push(`date_transaction <= $${params.length}`);
+    }
+
+    if (whereClause.length > 0) {
+      sql += ` WHERE ` + whereClause.join(' AND ');
+    }
+
+    const result = await query(sql, params);
+    return result.rows[0];
+  },
+
+  getOverallStats: async () => {
     const sql = `
       SELECT 
         SUM(CASE WHEN type_transaction = 'revenu' THEN amount ELSE 0 END) as total_income,
@@ -28,13 +60,17 @@ export const FinanceModel = {
     return result.rows;
   },
 
-  getRecentTransactions: async (limit = 10) => {
-    const sql = `
-      SELECT * FROM finances
-      ORDER BY date_transaction DESC
-      LIMIT $1
-    `;
-    const result = await query(sql, [limit]);
+  getRecentTransactions: async (limit = 10, year) => {
+    let sql = `SELECT * FROM finances`;
+    const params = [limit];
+    
+    if (year) {
+      sql += ` WHERE EXTRACT(YEAR FROM date_transaction) = $2`;
+      params.push(year);
+    }
+    
+    sql += ` ORDER BY date_transaction DESC LIMIT $1`;
+    const result = await query(sql, params);
     return result.rows;
   },
 
@@ -46,6 +82,27 @@ export const FinanceModel = {
       RETURNING *
     `;
     const result = await query(sql, [description, amount, type, date || new Date()]);
+    return result.rows[0];
+  },
+
+  delete: async (id) => {
+    const result = await query('DELETE FROM finances WHERE id = $1 RETURNING *', [id]);
+    return result.rows[0];
+  },
+
+  getGoal: async (year) => {
+    const result = await query('SELECT * FROM financial_goals WHERE year = $1', [year]);
+    return result.rows[0];
+  },
+
+  setGoal: async (year, goal_amount) => {
+    const sql = `
+      INSERT INTO financial_goals (year, goal_amount)
+      VALUES ($1, $2)
+      ON CONFLICT (year) DO UPDATE SET goal_amount = EXCLUDED.goal_amount
+      RETURNING *
+    `;
+    const result = await query(sql, [year, goal_amount]);
     return result.rows[0];
   },
 
