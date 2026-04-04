@@ -32,14 +32,25 @@ export const HRModel = {
     const result = await query(sql, [
       full_name, email, phone, address, cin_number, cnaps_number, 
       ostie_number, contract_type || 'CDI', is_social_subject !== undefined ? is_social_subject : true, 
-      children_count || 0, base_salary, job_title, hire_date, end_date
+      children_count || 0, base_salary || 0, job_title, hire_date || null, end_date || null
     ]);
     return result.rows[0];
   },
 
   updateEmployee: async (id, data) => {
-    const fields = Object.keys(data);
-    const values = Object.values(data);
+    // Sanitize data
+    const sanitized = { ...data };
+    if (sanitized.base_salary === '' || sanitized.base_salary === undefined) sanitized.base_salary = 0;
+    if (sanitized.children_count === '' || isNaN(sanitized.children_count)) sanitized.children_count = 0;
+    if (sanitized.hire_date === '') sanitized.hire_date = null;
+    if (sanitized.end_date === '') sanitized.end_date = null;
+
+    // Filter out id from update fields if present
+    delete sanitized.id;
+    delete sanitized.created_at;
+
+    const fields = Object.keys(sanitized);
+    const values = Object.values(sanitized);
     const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(', ');
     
     const sql = `UPDATE employees SET ${setClause} WHERE id = $1 RETURNING *`;
@@ -65,7 +76,29 @@ export const HRModel = {
       VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
     `;
-    const result = await query(sql, [full_name, email, phone, nif, stat, daily_rate]);
+    const result = await query(sql, [full_name, email, phone, nif, stat, daily_rate || 0]);
+    return result.rows[0];
+  },
+
+  updateFreelancer: async (id, data) => {
+    const sanitized = { ...data };
+    if (sanitized.daily_rate === '' || sanitized.daily_rate === undefined) sanitized.daily_rate = 0;
+    
+    // Filter out id from update fields if present
+    delete sanitized.id;
+    delete sanitized.created_at;
+
+    const fields = Object.keys(sanitized);
+    const values = Object.values(sanitized);
+    const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(', ');
+    
+    const sql = `UPDATE freelancers SET ${setClause} WHERE id = $1 RETURNING *`;
+    const result = await query(sql, [id, ...values]);
+    return result.rows[0];
+  },
+
+  deleteFreelancer: async (id) => {
+    const result = await query('DELETE FROM freelancers WHERE id = $1 RETURNING *', [id]);
     return result.rows[0];
   },
 
@@ -74,7 +107,7 @@ export const HRModel = {
     const { employee_id, type, amount, description, date_transaction } = data;
     const sql = `
       INSERT INTO hr_transactions (employee_id, type, amount, description, date_transaction)
-      VALUES ($1, $2, $3, $4, $5 || CURRENT_DATE)
+      VALUES ($1, $2, $3, $4, COALESCE($5, CURRENT_DATE))
       RETURNING *
     `;
     const result = await query(sql, [employee_id, type, amount, description, date_transaction]);
@@ -97,9 +130,19 @@ export const HRModel = {
     await query(sql, [transactionIds]);
   },
 
+  getAllTransactions: async () => {
+    const result = await query(`
+      SELECT t.*, e.full_name 
+      FROM hr_transactions t
+      JOIN employees e ON t.employee_id = e.id
+      ORDER BY t.created_at DESC
+    `);
+    return result.rows;
+  },
+
   // Payrolls
   getPayrolls: async (month, year) => {
-    let sql = 'SELECT p.*, e.full_name FROM payrolls p JOIN employees e ON p.employee_id = e.id';
+    let sql = 'SELECT p.*, e.full_name, e.job_title FROM payrolls p JOIN employees e ON p.employee_id = e.id';
     const params = [];
     if (month && year) {
       sql += ' WHERE p.month = $1 AND p.year = $2';
@@ -114,16 +157,16 @@ export const HRModel = {
     const { 
       employee_id, month, year, base_salary, primes_total, 
       cnaps_worker, cnaps_employer, ostie_worker, ostie_employer, 
-      irsa, advances_deduction, net_to_pay, total_employer_cost 
+      irsa, advances_deduction, fmfp, net_to_pay, total_employer_cost 
     } = data;
     
     const sql = `
       INSERT INTO payrolls (
         employee_id, month, year, base_salary, primes_total, 
         cnaps_worker, cnaps_employer, ostie_worker, ostie_employer, 
-        irsa, advances_deduction, net_to_pay, total_employer_cost
+        irsa, advances_deduction, fmfp, net_to_pay, total_employer_cost
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       ON CONFLICT (employee_id, month, year) 
       DO UPDATE SET 
         base_salary = EXCLUDED.base_salary,
@@ -134,6 +177,7 @@ export const HRModel = {
         ostie_employer = EXCLUDED.ostie_employer,
         irsa = EXCLUDED.irsa,
         advances_deduction = EXCLUDED.advances_deduction,
+        fmfp = EXCLUDED.fmfp,
         net_to_pay = EXCLUDED.net_to_pay,
         total_employer_cost = EXCLUDED.total_employer_cost
       RETURNING *
@@ -142,7 +186,7 @@ export const HRModel = {
     const result = await query(sql, [
       employee_id, month, year, base_salary, primes_total, 
       cnaps_worker, cnaps_employer, ostie_worker, ostie_employer, 
-      irsa, advances_deduction, net_to_pay, total_employer_cost
+      irsa, advances_deduction, fmfp, net_to_pay, total_employer_cost
     ]);
     return result.rows[0];
   }

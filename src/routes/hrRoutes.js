@@ -12,8 +12,11 @@ router.delete('/employees/:id', HRController.deleteEmployee);
 // Freelancers
 router.get('/freelancers', HRController.getFreelancers);
 router.post('/freelancers', HRController.addFreelancer);
+router.put('/freelancers/:id', HRController.updateFreelancer);
+router.delete('/freelancers/:id', HRController.deleteFreelancer);
 
 // Transactions
+router.get('/transactions', HRController.getTransactions);
 router.post('/transactions', HRController.addTransaction);
 
 // Payroll

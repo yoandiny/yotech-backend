@@ -93,11 +93,38 @@ export const HRController = {
     }
   },
 
+  updateFreelancer: async (req, res) => {
+    try {
+      const freelancer = await HRModel.updateFreelancer(req.params.id, req.body);
+      res.json(freelancer);
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  },
+
+  deleteFreelancer: async (req, res) => {
+    try {
+      await HRModel.deleteFreelancer(req.params.id);
+      res.json({ message: 'Freelancer supprimé' });
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  },
+
   // Transactions (Advances/Primes)
   addTransaction: async (req, res) => {
     try {
       const transaction = await HRModel.addHRTransaction(req.body);
       res.status(201).json(transaction);
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  },
+
+  getTransactions: async (req, res) => {
+    try {
+      const transactions = await HRModel.getAllTransactions();
+      res.json(transactions);
     } catch (error) {
       res.status(500).json({ message: error.message });
     }
@@ -130,11 +157,12 @@ export const HRController = {
         ostieEmployer = grossSalary * 0.05;
       }
 
+      const fmfp = grossSalary * 0.01;
       const taxableIncome = grossSalary - cnapsWorker - ostieWorker;
       const irsa = calculateIRSA(taxableIncome, employee.children_count);
 
       const netToPay = grossSalary - cnapsWorker - ostieWorker - irsa - advances;
-      const totalEmployerCost = grossSalary + cnapsEmployer + ostieEmployer;
+      const totalEmployerCost = grossSalary + cnapsEmployer + ostieEmployer + fmfp;
 
       const payrollData = {
         employee_id, month, year,
@@ -144,6 +172,7 @@ export const HRController = {
         cnaps_employer: cnapsEmployer,
         ostie_worker: ostieWorker,
         ostie_employer: ostieEmployer,
+        fmfp,
         irsa,
         advances_deduction: advances,
         net_to_pay: netToPay,

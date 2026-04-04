@@ -1,5 +1,4 @@
 import { query } from '../config/db.js';
-import bcrypt from 'bcryptjs';
 
 const initDb = async () => {
   try {
@@ -116,6 +115,7 @@ const initDb = async () => {
         ostie_employer DECIMAL(15, 2) DEFAULT 0,
         irsa DECIMAL(15, 2) DEFAULT 0,
         advances_deduction DECIMAL(15, 2) DEFAULT 0,
+        fmfp DECIMAL(15, 2) DEFAULT 0,
         net_to_pay DECIMAL(15, 2) NOT NULL,
         total_employer_cost DECIMAL(15, 2) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -123,27 +123,9 @@ const initDb = async () => {
       )
     `);
 
-    // Check if admin user exists, if not create one
-    const result = await query('SELECT * FROM users WHERE username = $1', ['admin']);
-    if (result.rows.length === 0) {
-      console.log('Creating default admin user...');
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('yotech2025', salt);
-      await query(
-        'INSERT INTO users (username, password) VALUES ($1, $2)',
-        ['admin', hashedPassword]
-      );
-    } else {
-      // Re-hash the password in case it's stored as plain text
-      console.log('Updating existing admin user password hash...');
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('yotech2025', salt);
-      await query(
-        'UPDATE users SET password = $1 WHERE username = $2',
-        [hashedPassword, 'admin']
-      );
-    }
-    
+    // Migration: Ajout de fmfp si déjà existant sans cette colonne
+    await query('ALTER TABLE payrolls ADD COLUMN IF NOT EXISTS fmfp DECIMAL(15, 2) DEFAULT 0');
+
     console.log('Database initialization complete.');
   } catch (error) {
     console.error('Error initializing database:', error);
