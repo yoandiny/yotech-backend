@@ -44,7 +44,20 @@ const initDb = async () => {
         amount DECIMAL(15, 2) NOT NULL,
         type_transaction VARCHAR(20) NOT NULL, -- 'revenu', 'dépense'
         date_transaction DATE DEFAULT CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        -- Invoice fields
+        is_invoice BOOLEAN DEFAULT FALSE,
+        invoice_number VARCHAR(50),
+        client_name VARCHAR(255),
+        client_address TEXT,
+        client_nif VARCHAR(20),
+        client_stat VARCHAR(20),
+        client_email VARCHAR(100),
+        client_phone VARCHAR(20),
+        due_date DATE,
+        tax_rate DECIMAL(5, 2) DEFAULT 0,
+        tax_amount DECIMAL(15, 2) DEFAULT 0,
+        total_amount DECIMAL(15, 2) DEFAULT 0
       )
     `);
 
@@ -123,10 +136,28 @@ const initDb = async () => {
       )
     `);
 
-    // Migration: Ajout de fmfp si déjà existant sans cette colonne
-    await query('ALTER TABLE payrolls ADD COLUMN IF NOT EXISTS fmfp DECIMAL(15, 2) DEFAULT 0');
+    // Create settings table for company information
+    await query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        id SERIAL PRIMARY KEY,
+        company_name VARCHAR(255),
+        company_address TEXT,
+        company_nif VARCHAR(20),
+        company_stat VARCHAR(20),
+        company_email VARCHAR(100),
+        company_phone VARCHAR(20),
+        tax_rate DECIMAL(5, 2) DEFAULT 20.00, -- Default TVA Madagascar
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-    console.log('Database initialization complete.');
+    // Insert default settings if not exists
+    await query(`
+      INSERT INTO settings (company_name, company_address, company_nif, company_stat, company_email, company_phone, tax_rate)
+      VALUES ('Votre Entreprise', 'Adresse de l''entreprise', '', '', '', '', 20.00)
+      ON CONFLICT DO NOTHING
+    `);
   } catch (error) {
     console.error('Error initializing database:', error);
   }

@@ -75,13 +75,42 @@ export const FinanceModel = {
   },
 
   addTransaction: async (data) => {
-    const { description, amount, type, date } = data;
+    const { 
+      description, 
+      amount, 
+      type, 
+      date,
+      is_invoice = false,
+      invoice_number,
+      client_name,
+      client_address,
+      client_nif,
+      client_stat,
+      client_email,
+      client_phone,
+      due_date,
+      tax_rate = 0
+    } = data;
+    
+    const tax_amount = is_invoice ? (amount * tax_rate / 100) : 0;
+    const total_amount = is_invoice ? (amount + tax_amount) : amount;
+    
     const sql = `
-      INSERT INTO finances (description, amount, type_transaction, date_transaction)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO finances (
+        description, amount, type_transaction, date_transaction,
+        is_invoice, invoice_number, client_name, client_address, 
+        client_nif, client_stat, client_email, client_phone, 
+        due_date, tax_rate, tax_amount, total_amount
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `;
-    const result = await query(sql, [description, amount, type, date || new Date()]);
+    const result = await query(sql, [
+      description, amount, type, date || new Date(),
+      is_invoice, invoice_number, client_name, client_address,
+      client_nif, client_stat, client_email, client_phone,
+      due_date, tax_rate, tax_amount, total_amount
+    ]);
     return result.rows[0];
   },
 
@@ -122,5 +151,111 @@ export const FinanceModel = {
     sql += ` ORDER BY date_transaction DESC`;
     const result = await query(sql, params);
     return result.rows;
+  },
+
+  getSettings: async () => {
+    const result = await query('SELECT * FROM settings LIMIT 1');
+    return result.rows[0];
+  },
+
+  updateSettings: async (data) => {
+    const { 
+      company_name, 
+      company_address, 
+      company_nif, 
+      company_stat, 
+      company_email, 
+      company_phone, 
+      tax_rate 
+    } = data;
+    
+    const sql = `
+      UPDATE settings SET 
+        company_name = $1,
+        company_address = $2,
+        company_nif = $3,
+        company_stat = $4,
+        company_email = $5,
+        company_phone = $6,
+        tax_rate = $7,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = (SELECT id FROM settings LIMIT 1)
+      RETURNING *
+    `;
+    const result = await query(sql, [
+      company_name, company_address, company_nif, company_stat, 
+      company_email, company_phone, tax_rate
+    ]);
+    return result.rows[0];
+  },
+
+  generateInvoiceNumber: async () => {
+    const currentYear = new Date().getFullYear();
+    const result = await query(`
+      SELECT COUNT(*) as count FROM finances 
+      WHERE is_invoice = true AND EXTRACT(YEAR FROM date_transaction) = $1
+    `, [currentYear]);
+    const count = parseInt(result.rows[0].count) + 1;
+    return `INV-${currentYear}-${count.toString().padStart(4, '0')}`;
+  },
+
+  getTransactionById: async (id) => {
+    const result = await query('SELECT * FROM finances WHERE id = $1', [id]);
+    return result.rows[0];
+  },
+
+  invoiceTransaction: async (id, data) => {
+    const {
+      invoice_number,
+      client_name,
+      client_address,
+      client_nif,
+      client_stat,
+      client_email,
+      client_phone,
+      due_date,
+      tax_rate = 0
+    } = data;
+
+    const transaction = await FinanceModel.getTransactionById(id).catch(() => null);
+    if (!transaction) {
+      return null;
+    }
+
+    const tax_amount = parseFloat(transaction.amount) * parseFloat(tax_rate) / 100;
+    const total_amount = parseFloat(transaction.amount) + tax_amount;
+
+    const sql = `
+      UPDATE finances SET
+        is_invoice = TRUE,
+        invoice_number = $1,
+        client_name = $2,
+        client_address = $3,
+        client_nif = $4,
+        client_stat = $5,
+        client_email = $6,
+        client_phone = $7,
+        due_date = $8,
+        tax_rate = $9,
+        tax_amount = $10,
+        total_amount = $11
+      WHERE id = $12
+      RETURNING *
+    `;
+    const result = await query(sql, [
+      invoice_number,
+      client_name,
+      client_address,
+      client_nif,
+      client_stat,
+      client_email,
+      client_phone,
+      due_date,
+      tax_rate,
+      tax_amount,
+      total_amount,
+      id
+    ]);
+    return result.rows[0];
   }
 };
