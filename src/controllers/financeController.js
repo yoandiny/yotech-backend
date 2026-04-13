@@ -181,6 +181,13 @@ export const generateInvoicePDF = async (req, res) => {
     const companyEmail = settings.company_email || 'contact@yotech-compute.com';
     const companyPhone = settings.company_phone || '';
 
+    const formatMGA = (amount) => {
+      return new Intl.NumberFormat('fr-FR', {
+        maximumFractionDigits: 0,
+        minimumFractionDigits: 0
+      }).format(parseFloat(amount || 0));
+    };
+
     const invoiceDate = new Date(transaction.date_transaction).toLocaleDateString('fr-FR');
     const dueDate = transaction.due_date ? new Date(transaction.due_date).toLocaleDateString('fr-FR') : '';
     const description = transaction.description || 'Service facturé';
@@ -188,6 +195,11 @@ export const generateInvoicePDF = async (req, res) => {
     const taxAmount = parseFloat(transaction.tax_amount || 0);
     const totalAmount = parseFloat(transaction.total_amount || amountHT + taxAmount);
     const taxRate = parseFloat(transaction.tax_rate || 0);
+
+    const amountFontSize = (value) => {
+      const length = formatMGA(value).length;
+      return length > 14 ? 9 : length > 12 ? 10 : 11;
+    };
 
     // --- Header ---
     const logoPath = path.join(process.cwd(), 'src', 'assets', 'logo.png');
@@ -250,30 +262,35 @@ export const generateInvoicePDF = async (req, res) => {
     doc.text('MONTANT HT', 460, tableTop + 10, { width: 85, align: 'right' });
 
     const rowY = tableTop + 40;
+    const rowLabelWidth = 220;
+    const rowHeight = doc.heightOfString(description, { width: rowLabelWidth });
+    const amountFont = amountFontSize(amountHT);
+    const totalFont = amountFontSize(totalAmount) + 2;
+
     doc.fillColor('#0f172a').font('Helvetica').fontSize(10);
-    doc.text(description, 55, rowY, { width: 220 });
+    doc.text(description, 55, rowY, { width: rowLabelWidth });
     doc.text('1', 280, rowY, { width: 40, align: 'center' });
-    doc.font('Helvetica-Bold').text(`${amountHT.toLocaleString('fr-FR')}`, 320, rowY, { width: 100, align: 'right' });
-    doc.font('Helvetica').fontSize(9).text(`${taxRate}%`, 420, rowY, { width: 40, align: 'center' });
-    doc.font('Helvetica-Bold').fontSize(10).text(`${amountHT.toLocaleString('fr-FR')}`, 460, rowY, { width: 85, align: 'right' });
+    doc.font('Helvetica-Bold').fontSize(amountFont).text(`${formatMGA(amountHT)}`, 320, rowY, { width: 105, align: 'right' });
+    doc.font('Helvetica').fontSize(9).text(`${taxRate}%`, 430, rowY, { width: 40, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(amountFont).text(`${formatMGA(amountHT)}`, 470, rowY, { width: 90, align: 'right' });
 
     // Border below row
-    doc.moveTo(40, rowY + 25).lineTo(555, rowY + 25).strokeColor('#f1f5f9').stroke();
+    doc.moveTo(40, rowY + rowHeight + 15).lineTo(555, rowY + rowHeight + 15).strokeColor('#f1f5f9').stroke();
 
     // --- Summary ---
-    const summaryY = rowY + 60;
+    const summaryY = rowY + rowHeight + 35;
     const summaryLabelX = 350;
-    const summaryValueX = 460;
+    const summaryValueX = 470;
 
     doc.fillColor('#64748b').font('Helvetica').fontSize(10).text('Sous-total HT', summaryLabelX, summaryY);
-    doc.fillColor('#0f172a').font('Helvetica-Bold').text(`${amountHT.toLocaleString('fr-FR')} Ar`, summaryValueX, summaryY, { align: 'right', width: 85 });
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(`${formatMGA(amountHT)} Ar`, summaryValueX, summaryY, { align: 'right', width: 90 });
 
     doc.fillColor('#64748b').font('Helvetica').fontSize(10).text(`TVA (${taxRate}%)`, summaryLabelX, summaryY + 20);
-    doc.fillColor('#0f172a').font('Helvetica-Bold').text(`${taxAmount.toLocaleString('fr-FR')} Ar`, summaryValueX, summaryY + 20, { align: 'right', width: 85 });
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(`${formatMGA(taxAmount)} Ar`, summaryValueX, summaryY + 20, { align: 'right', width: 90 });
 
-    doc.rect(summaryLabelX - 10, summaryY + 40, 215, 45).fill('#4f46e5');
-    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10).text('TOTAL TTC', summaryLabelX, summaryY + 50);
-    doc.fontSize(16).text(`${totalAmount.toLocaleString('fr-FR')} Ar`, summaryValueX - 30, summaryY + 55, { align: 'right', width: 115 });
+    doc.rect(summaryLabelX - 10, summaryY + 40, 220, 50).fill('#4f46e5');
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10).text('TOTAL TTC', summaryLabelX, summaryY + 52);
+    doc.fontSize(totalFont).text(`${formatMGA(totalAmount)} Ar`, summaryValueX, summaryY + 58, { align: 'right', width: 90 });
 
     // --- Footer ---
     const footerY = 750;
