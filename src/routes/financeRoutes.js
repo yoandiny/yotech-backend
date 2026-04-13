@@ -10,7 +10,8 @@ import {
   updateSettings,
   generateInvoiceNumber,
   invoiceTransaction,
-  generateInvoicePDF
+  generateInvoicePDF,
+  getInvoiceFormData
 } from '../controllers/financeController.js';
 
 const router = express.Router();
@@ -26,5 +27,6 @@ router.put('/settings', updateSettings);
 router.get('/invoice-number', generateInvoiceNumber);
 router.post('/:id/invoice', invoiceTransaction);
 router.get('/:id/pdf', generateInvoicePDF);
+router.get('/:id/invoice-data', getInvoiceFormData);
 
 export default router;

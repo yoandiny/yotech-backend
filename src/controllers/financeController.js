@@ -182,10 +182,11 @@ export const generateInvoicePDF = async (req, res) => {
     const companyPhone = settings.company_phone || '';
 
     const formatMGA = (amount) => {
-      return new Intl.NumberFormat('fr-FR', {
+      const formatted = new Intl.NumberFormat('fr-FR', {
         maximumFractionDigits: 0,
         minimumFractionDigits: 0
       }).format(parseFloat(amount || 0));
+      return formatted.replace(/[\u202f\u00a0]/g, ' ');
     };
 
     const invoiceDate = new Date(transaction.date_transaction).toLocaleDateString('fr-FR');
@@ -257,9 +258,9 @@ export const generateInvoicePDF = async (req, res) => {
     doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9);
     doc.text('DESCRIPTION', 55, tableTop + 10);
     doc.text('QTÉ', 280, tableTop + 10, { width: 40, align: 'center' });
-    doc.text('PRIX UNITAIRE HT', 320, tableTop + 10, { width: 100, align: 'right' });
-    doc.text('TVA', 420, tableTop + 10, { width: 40, align: 'center' });
-    doc.text('MONTANT HT', 460, tableTop + 10, { width: 85, align: 'right' });
+    doc.text('PRIX UNITAIRE HT', 320, tableTop + 10, { width: 105, align: 'right' });
+    doc.text('TVA', 425, tableTop + 10, { width: 40, align: 'center' });
+    doc.text('MONTANT HT', 465, tableTop + 10, { width: 90, align: 'right' });
 
     const rowY = tableTop + 40;
     const rowLabelWidth = 220;
@@ -271,8 +272,8 @@ export const generateInvoicePDF = async (req, res) => {
     doc.text(description, 55, rowY, { width: rowLabelWidth });
     doc.text('1', 280, rowY, { width: 40, align: 'center' });
     doc.font('Helvetica-Bold').fontSize(amountFont).text(`${formatMGA(amountHT)}`, 320, rowY, { width: 105, align: 'right' });
-    doc.font('Helvetica').fontSize(9).text(`${taxRate}%`, 430, rowY, { width: 40, align: 'center' });
-    doc.font('Helvetica-Bold').fontSize(amountFont).text(`${formatMGA(amountHT)}`, 470, rowY, { width: 90, align: 'right' });
+    doc.font('Helvetica').fontSize(9).text(`${taxRate}%`, 425, rowY, { width: 40, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(amountFont).text(`${formatMGA(amountHT)}`, 465, rowY, { width: 90, align: 'right' });
 
     // Border below row
     doc.moveTo(40, rowY + rowHeight + 15).lineTo(555, rowY + rowHeight + 15).strokeColor('#f1f5f9').stroke();
@@ -280,7 +281,7 @@ export const generateInvoicePDF = async (req, res) => {
     // --- Summary ---
     const summaryY = rowY + rowHeight + 35;
     const summaryLabelX = 350;
-    const summaryValueX = 470;
+    const summaryValueX = 465;
 
     doc.fillColor('#64748b').font('Helvetica').fontSize(10).text('Sous-total HT', summaryLabelX, summaryY);
     doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(`${formatMGA(amountHT)} Ar`, summaryValueX, summaryY, { align: 'right', width: 90 });
@@ -288,7 +289,7 @@ export const generateInvoicePDF = async (req, res) => {
     doc.fillColor('#64748b').font('Helvetica').fontSize(10).text(`TVA (${taxRate}%)`, summaryLabelX, summaryY + 20);
     doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(`${formatMGA(taxAmount)} Ar`, summaryValueX, summaryY + 20, { align: 'right', width: 90 });
 
-    doc.rect(summaryLabelX - 10, summaryY + 40, 220, 50).fill('#4f46e5');
+    doc.rect(340, summaryY + 40, 215, 50).fill('#4f46e5');
     doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10).text('TOTAL TTC', summaryLabelX, summaryY + 52);
     doc.fontSize(totalFont).text(`${formatMGA(totalAmount)} Ar`, summaryValueX, summaryY + 58, { align: 'right', width: 90 });
 
@@ -302,6 +303,27 @@ export const generateInvoicePDF = async (req, res) => {
     doc.end();
   } catch (error) {
     console.error('Error generating invoice PDF:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+export const getInvoiceFormData = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const transactionResult = await FinanceModel.getTransactionById(id);
+    if (!transactionResult || !transactionResult.is_invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const settings = await FinanceModel.getSettings();
+
+    res.json({
+      transaction: transactionResult,
+      settings: settings
+    });
+  } catch (error) {
+    console.error('Error fetching invoice data:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };
