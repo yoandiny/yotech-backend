@@ -140,7 +140,7 @@ export const invoiceTransaction = async (req, res) => {
       invoiceData.tax_rate = settings.tax_rate || 0;
     }
     if (!invoiceData.invoice_number) {
-      invoiceData.invoice_number = await FinanceModel.generateInvoiceNumber();
+      return res.status(400).json({ error: 'Le numéro de facture est obligatoire.' });
     }
 
     const invoice = await FinanceModel.invoiceTransaction(id, invoiceData);
@@ -165,7 +165,8 @@ export const generateInvoicePDF = async (req, res) => {
 
     const doc = new PDFDocument({
       size: 'A4',
-      margin: 40
+      margin: 40,
+      bufferPages: true
     });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -173,12 +174,12 @@ export const generateInvoicePDF = async (req, res) => {
 
     doc.pipe(res);
 
-    const companyName = settings.company_name || 'Votre Entreprise';
-    const companyAddress = settings.company_address || '';
-    const companyNIF = settings.company_nif ? `NIF: ${settings.company_nif}` : '';
-    const companySTAT = settings.company_stat ? `STAT: ${settings.company_stat}` : '';
-    const companyEmail = settings.company_email ? `Email: ${settings.company_email}` : '';
-    const companyPhone = settings.company_phone ? `Tél: ${settings.company_phone}` : '';
+    const companyName = settings.company_name || 'YoTech Compute';
+    const companyAddress = settings.company_address || '101 Antananarivo, Madagascar';
+    const companyNIF = settings.company_nif || '1000000000';
+    const companySTAT = settings.company_stat || '1000000000';
+    const companyEmail = settings.company_email || 'contact@yotech-compute.com';
+    const companyPhone = settings.company_phone || '';
 
     const invoiceDate = new Date(transaction.date_transaction).toLocaleDateString('fr-FR');
     const dueDate = transaction.due_date ? new Date(transaction.due_date).toLocaleDateString('fr-FR') : '';
@@ -188,69 +189,98 @@ export const generateInvoicePDF = async (req, res) => {
     const totalAmount = parseFloat(transaction.total_amount || amountHT + taxAmount);
     const taxRate = parseFloat(transaction.tax_rate || 0);
 
-    // Header block
-    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(24).text('FACTURE', { align: 'right' });
-    doc.moveDown(0.2);
-    doc.font('Helvetica').fontSize(10).fillColor('#475569');
-    doc.text(`Facture n° ${transaction.invoice_number}`, { align: 'right' });
-    doc.text(`Date : ${invoiceDate}`, { align: 'right' });
-    if (dueDate) doc.text(`Échéance : ${dueDate}`, { align: 'right' });
+    // --- Header ---
+    const logoPath = path.join(process.cwd(), 'src', 'assets', 'logo.png');
+    if (fs.existsSync(logoPath)) {
+      doc.image(logoPath, 40, 35, { width: 100 });
+    } else {
+      doc.fillColor('#4f46e5').font('Helvetica-Bold').fontSize(24).text('YoTech', 40, 40);
+      doc.fontSize(10).text('Compute', 40, 65);
+    }
 
-    doc.moveDown(1.5);
-
-    const contentStart = doc.y;
-    doc.fontSize(11).fillColor('#0f172a').font('Helvetica-Bold').text(companyName, 50, contentStart);
-    doc.font('Helvetica').fontSize(9).fillColor('#475569');
-    if (companyAddress) doc.text(companyAddress);
-    if (companyNIF) doc.text(companyNIF);
-    if (companySTAT) doc.text(companySTAT);
-    if (companyEmail) doc.text(companyEmail);
-    if (companyPhone) doc.text(companyPhone);
-
-    const clientX = 320;
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0f172a').text('Client', clientX, contentStart);
-    doc.font('Helvetica').fontSize(9).fillColor('#475569');
-    doc.text(transaction.client_name || 'Client', clientX, doc.y);
-    if (transaction.client_address) doc.text(transaction.client_address, { width: 220, align: 'left' });
-    if (transaction.client_email) doc.text(`Email : ${transaction.client_email}`, clientX);
-    if (transaction.client_phone) doc.text(`Tél : ${transaction.client_phone}`, clientX);
-
+    doc.fillColor('#1e1b4b').font('Helvetica-Bold').fontSize(28).text('FACTURE', 0, 40, { align: 'right' });
+    doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(10).text(`N° ${transaction.invoice_number}`, 0, 75, { align: 'right' });
+    
     doc.moveDown(2);
 
-    const tableTop = doc.y;
-    doc.rect(50, tableTop, 495, 24).fill('#0b5394');
-    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10);
-    doc.text('Description', 58, tableTop + 7, { width: 220 });
-    doc.text('Qté', 288, tableTop + 7, { width: 60, align: 'right' });
-    doc.text('Prix HT', 354, tableTop + 7, { width: 90, align: 'right' });
-    doc.text('TVA', 450, tableTop + 7, { width: 45, align: 'right' });
-    doc.text('Total', 500, tableTop + 7, { width: 45, align: 'right' });
+    // --- Info Grid ---
+    const gridY = 130;
+    
+    // De:
+    doc.fillColor('#4f46e5').font('Helvetica-Bold').fontSize(9).text('ÉMETTEUR', 40, gridY);
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11).text(companyName, 40, gridY + 15);
+    doc.fillColor('#475569').font('Helvetica').fontSize(9);
+    doc.text(companyAddress, 40, gridY + 30, { width: 200 });
+    doc.text(`NIF: ${companyNIF} | STAT: ${companySTAT}`, 40, doc.y + 2);
+    if (companyEmail) doc.text(companyEmail, 40, doc.y + 2);
 
+    // À:
+    const clientX = 320;
+    doc.fillColor('#4f46e5').font('Helvetica-Bold').fontSize(9).text('DESTINATAIRE', clientX, gridY);
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11).text(transaction.client_name || 'Client', clientX, gridY + 15);
+    doc.fillColor('#475569').font('Helvetica').fontSize(9);
+    if (transaction.client_address) doc.text(transaction.client_address, clientX, doc.y + 2, { width: 220 });
+    if (transaction.client_email) doc.text(`Email: ${transaction.client_email}`, clientX, doc.y + 2);
+    if (transaction.client_phone) doc.text(`Tél: ${transaction.client_phone}`, clientX, doc.y + 2);
+
+    // Dates:
+    const datesY = gridY + 100;
+    doc.rect(40, datesY, 515, 40).fill('#f8fafc');
+    doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8).text('DATE D\'ÉMISSION', 60, datesY + 10);
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text(invoiceDate, 60, datesY + 22);
+
+    if (dueDate) {
+      doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8).text('DATE D\'ÉCHÉANCE', 220, datesY + 10);
+      doc.fillColor('#4f46e5').font('Helvetica-Bold').fontSize(10).text(dueDate, 220, datesY + 22);
+    }
+
+    doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(8).text('DEVISE', 450, datesY + 10);
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(10).text('Ariary (MGA)', 450, datesY + 22);
+
+    doc.moveDown(4);
+
+    // --- Table ---
+    const tableTop = 290;
+    doc.rect(40, tableTop, 515, 30).fill('#1e1b4b');
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9);
+    doc.text('DESCRIPTION', 55, tableTop + 10);
+    doc.text('QTÉ', 280, tableTop + 10, { width: 40, align: 'center' });
+    doc.text('PRIX UNITAIRE HT', 320, tableTop + 10, { width: 100, align: 'right' });
+    doc.text('TVA', 420, tableTop + 10, { width: 40, align: 'center' });
+    doc.text('MONTANT HT', 460, tableTop + 10, { width: 85, align: 'right' });
+
+    const rowY = tableTop + 40;
     doc.fillColor('#0f172a').font('Helvetica').fontSize(10);
-    const itemY = tableTop + 34;
-    doc.text(description, 58, itemY, { width: 220 });
-    doc.text('1', 288, itemY, { width: 60, align: 'right' });
-    doc.text(`${amountHT.toLocaleString('fr-FR')} Ar`, 354, itemY, { width: 90, align: 'right' });
-    doc.text(`${taxRate}%`, 450, itemY, { width: 45, align: 'right' });
-    doc.text(`${totalAmount.toLocaleString('fr-FR')} Ar`, 500, itemY, { width: 45, align: 'right' });
+    doc.text(description, 55, rowY, { width: 220 });
+    doc.text('1', 280, rowY, { width: 40, align: 'center' });
+    doc.font('Helvetica-Bold').text(`${amountHT.toLocaleString('fr-FR')}`, 320, rowY, { width: 100, align: 'right' });
+    doc.font('Helvetica').fontSize(9).text(`${taxRate}%`, 420, rowY, { width: 40, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(10).text(`${amountHT.toLocaleString('fr-FR')}`, 460, rowY, { width: 85, align: 'right' });
 
-    doc.moveDown(5);
+    // Border below row
+    doc.moveTo(40, rowY + 25).lineTo(555, rowY + 25).strokeColor('#f1f5f9').stroke();
 
-    const summaryTop = itemY + 60;
-    doc.moveTo(50, summaryTop - 12).lineTo(545, summaryTop - 12).strokeColor('#e2e8f0').stroke();
-    doc.font('Helvetica-Bold').fillColor('#0f172a').fontSize(10).text('Total HT', 360, summaryTop);
-    doc.font('Helvetica').text(`${amountHT.toLocaleString('fr-FR')} Ar`, 500, summaryTop, { width: 45, align: 'right' });
-    doc.font('Helvetica-Bold').text('TVA', 360, summaryTop + 16);
-    doc.font('Helvetica').text(`${taxAmount.toLocaleString('fr-FR')} Ar`, 500, summaryTop + 16, { width: 45, align: 'right' });
-    doc.font('Helvetica-Bold').fontSize(12).text('Total TTC', 360, summaryTop + 36);
-    doc.font('Helvetica').fontSize(12).text(`${totalAmount.toLocaleString('fr-FR')} Ar`, 500, summaryTop + 36, { width: 45, align: 'right' });
+    // --- Summary ---
+    const summaryY = rowY + 60;
+    const summaryLabelX = 350;
+    const summaryValueX = 460;
 
-    doc.moveDown(6);
-    doc.fontSize(9).fillColor('#475569').font('Helvetica');
-    doc.text('Merci pour votre confiance. Cette facture est établie conformément à la législation fiscale malgache.', 50, doc.y, {
-      width: 495,
-      align: 'left'
-    });
+    doc.fillColor('#64748b').font('Helvetica').fontSize(10).text('Sous-total HT', summaryLabelX, summaryY);
+    doc.fillColor('#0f172a').font('Helvetica-Bold').text(`${amountHT.toLocaleString('fr-FR')} Ar`, summaryValueX, summaryY, { align: 'right', width: 85 });
+
+    doc.fillColor('#64748b').font('Helvetica').fontSize(10).text(`TVA (${taxRate}%)`, summaryLabelX, summaryY + 20);
+    doc.fillColor('#0f172a').font('Helvetica-Bold').text(`${taxAmount.toLocaleString('fr-FR')} Ar`, summaryValueX, summaryY + 20, { align: 'right', width: 85 });
+
+    doc.rect(summaryLabelX - 10, summaryY + 40, 215, 45).fill('#4f46e5');
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10).text('TOTAL TTC', summaryLabelX, summaryY + 50);
+    doc.fontSize(16).text(`${totalAmount.toLocaleString('fr-FR')} Ar`, summaryValueX - 30, summaryY + 55, { align: 'right', width: 115 });
+
+    // --- Footer ---
+    const footerY = 750;
+    doc.moveTo(40, footerY).lineTo(555, footerY).strokeColor('#e2e8f0').stroke();
+    doc.fillColor('#94a3b8').font('Helvetica').fontSize(8);
+    doc.text('Merci de votre confiance. YoTech Compute vous accompagne dans votre transformation digitale.', 40, footerY + 15, { align: 'center', width: 515 });
+    doc.text('Facture générée numériquement — YoTech ERP v2.0', 40, footerY + 30, { align: 'center', width: 515 });
 
     doc.end();
   } catch (error) {
@@ -258,3 +288,4 @@ export const generateInvoicePDF = async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };
+
