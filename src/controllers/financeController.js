@@ -122,6 +122,16 @@ export const generateInvoiceNumber = async (req, res) => {
   }
 };
 
+export const generateQuoteNumber = async (req, res) => {
+  try {
+    const quoteNumber = await FinanceModel.generateQuoteNumber();
+    res.json({ quote_number: quoteNumber });
+  } catch (error) {
+    console.error('Error generating quote number:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 export const invoiceTransaction = async (req, res) => {
   try {
     const { id } = req.params;
@@ -324,6 +334,27 @@ export const getInvoiceFormData = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching invoice data:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+export const getQuoteFormData = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const transactionResult = await FinanceModel.getTransactionById(id);
+    if (!transactionResult || !transactionResult.is_quote) {
+      return res.status(404).json({ error: 'Quote not found' });
+    }
+
+    const settings = await FinanceModel.getSettings();
+
+    res.json({
+      transaction: transactionResult,
+      settings: settings
+    });
+  } catch (error) {
+    console.error('Error fetching quote data:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };

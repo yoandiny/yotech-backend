@@ -4,9 +4,9 @@ export const FinanceModel = {
   getStats: async (year, startDate, endDate) => {
     let sql = `
       SELECT 
-        SUM(CASE WHEN type_transaction = 'revenu' THEN amount ELSE 0 END) as total_income,
-        SUM(CASE WHEN type_transaction = 'dépense' THEN amount ELSE 0 END) as total_expenses,
-        SUM(CASE WHEN type_transaction = 'revenu' THEN amount ELSE -amount END) as net_profit
+        SUM(CASE WHEN type_transaction = 'revenu' AND is_quote = FALSE THEN amount ELSE 0 END) as total_income,
+        SUM(CASE WHEN type_transaction = 'dépense' AND is_quote = FALSE THEN amount ELSE 0 END) as total_expenses,
+        SUM(CASE WHEN type_transaction = 'revenu' AND is_quote = FALSE THEN amount WHEN type_transaction = 'dépense' AND is_quote = FALSE THEN -amount ELSE 0 END) as net_profit
       FROM finances
     `;
     const params = [];
@@ -36,9 +36,9 @@ export const FinanceModel = {
   getOverallStats: async () => {
     const sql = `
       SELECT 
-        SUM(CASE WHEN type_transaction = 'revenu' THEN amount ELSE 0 END) as total_income,
-        SUM(CASE WHEN type_transaction = 'dépense' THEN amount ELSE 0 END) as total_expenses,
-        SUM(CASE WHEN type_transaction = 'revenu' THEN amount ELSE -amount END) as net_profit
+        SUM(CASE WHEN type_transaction = 'revenu' AND is_quote = FALSE THEN amount ELSE 0 END) as total_income,
+        SUM(CASE WHEN type_transaction = 'dépense' AND is_quote = FALSE THEN amount ELSE 0 END) as total_expenses,
+        SUM(CASE WHEN type_transaction = 'revenu' AND is_quote = FALSE THEN amount WHEN type_transaction = 'dépense' AND is_quote = FALSE THEN -amount ELSE 0 END) as net_profit
       FROM finances
     `;
     const result = await query(sql);
@@ -52,7 +52,7 @@ export const FinanceModel = {
         SUM(CASE WHEN type_transaction = 'revenu' THEN amount ELSE 0 END) as income,
         SUM(CASE WHEN type_transaction = 'dépense' THEN amount ELSE 0 END) as expense
       FROM finances
-      WHERE date_transaction >= NOW() - INTERVAL '${days} days'
+      WHERE is_quote = FALSE AND date_transaction >= NOW() - INTERVAL '${days} days'
       GROUP BY date
       ORDER BY date ASC
     `;
@@ -89,27 +89,34 @@ export const FinanceModel = {
       client_email,
       client_phone,
       due_date,
-      tax_rate = 0
+      tax_rate = 0,
+      is_quote = false,
+      quote_number,
+      prestations_details,
+      general_conditions,
+      currency = 'MGA'
     } = data;
     
-    const tax_amount = is_invoice ? (amount * tax_rate / 100) : 0;
-    const total_amount = is_invoice ? (amount + tax_amount) : amount;
+    const tax_amount = (is_invoice || is_quote) ? (amount * tax_rate / 100) : 0;
+    const total_amount = (is_invoice || is_quote) ? (amount + tax_amount) : amount;
     
     const sql = `
       INSERT INTO finances (
         description, amount, type_transaction, date_transaction,
         is_invoice, invoice_number, client_name, client_address, 
         client_nif, client_stat, client_email, client_phone, 
-        due_date, tax_rate, tax_amount, total_amount
+        due_date, tax_rate, tax_amount, total_amount,
+        is_quote, quote_number, prestations_details, general_conditions, currency
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING *
     `;
     const result = await query(sql, [
       description, amount, type, date || new Date(),
       is_invoice, invoice_number, client_name, client_address,
       client_nif, client_stat, client_email, client_phone,
-      due_date, tax_rate, tax_amount, total_amount
+      due_date || null, tax_rate, tax_amount, total_amount,
+      is_quote, quote_number, prestations_details, general_conditions, currency
     ]);
     return result.rows[0];
   },
@@ -197,6 +204,16 @@ export const FinanceModel = {
     `, [currentYear]);
     const count = parseInt(result.rows[0].count) + 1;
     return `INV-${currentYear}-${count.toString().padStart(4, '0')}`;
+  },
+
+  generateQuoteNumber: async () => {
+    const currentYear = new Date().getFullYear();
+    const result = await query(`
+      SELECT COUNT(*) as count FROM finances 
+      WHERE is_quote = true AND EXTRACT(YEAR FROM date_transaction) = $1
+    `, [currentYear]);
+    const count = parseInt(result.rows[0].count) + 1;
+    return `DEV-${currentYear}-${count.toString().padStart(4, '0')}`;
   },
 
   getTransactionById: async (id) => {

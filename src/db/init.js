@@ -57,7 +57,13 @@ const initDb = async () => {
         due_date DATE,
         tax_rate DECIMAL(5, 2) DEFAULT 0,
         tax_amount DECIMAL(15, 2) DEFAULT 0,
-        total_amount DECIMAL(15, 2) DEFAULT 0
+        total_amount DECIMAL(15, 2) DEFAULT 0,
+        -- Quote fields
+        is_quote BOOLEAN DEFAULT FALSE,
+        quote_number VARCHAR(50),
+        prestations_details TEXT,
+        general_conditions TEXT,
+        currency VARCHAR(3) DEFAULT 'MGA'
       )
     `);
 
