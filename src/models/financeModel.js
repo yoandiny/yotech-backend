@@ -61,11 +61,11 @@ export const FinanceModel = {
   },
 
   getRecentTransactions: async (limit = 10, year) => {
-    let sql = `SELECT * FROM finances`;
+    let sql = `SELECT * FROM finances WHERE is_quote = FALSE`;
     const params = [limit];
     
     if (year) {
-      sql += ` WHERE EXTRACT(YEAR FROM date_transaction) = $2`;
+      sql += ` AND EXTRACT(YEAR FROM date_transaction) = $2`;
       params.push(year);
     }
     
