@@ -61,10 +61,16 @@ const initDb = async () => {
         -- Quote fields
         is_quote BOOLEAN DEFAULT FALSE,
         quote_number VARCHAR(50),
+        quote_status VARCHAR(20) DEFAULT 'final',
         prestations_details TEXT,
         general_conditions TEXT,
         currency VARCHAR(3) DEFAULT 'MGA'
       )
+    `);
+
+    await query(`
+      ALTER TABLE finances
+      ADD COLUMN IF NOT EXISTS quote_status VARCHAR(20) DEFAULT 'final'
     `);
 
     // Create employees table

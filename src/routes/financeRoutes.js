@@ -4,6 +4,7 @@ import {
   getChartData, 
   createTransaction, 
   getHistory, 
+  updateTransaction,
   getGoal, 
   setGoal,
   getSettings,
@@ -22,6 +23,7 @@ router.get('/stats', getStats);
 router.get('/chart', getChartData);
 router.post('/', createTransaction);
 router.get('/history', getHistory);
+router.put('/:id', updateTransaction);
 router.get('/goal', getGoal);
 router.post('/goal', setGoal);
 router.get('/settings', getSettings);

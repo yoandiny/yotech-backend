@@ -70,6 +70,20 @@ export const getHistory = async (req, res) => {
   }
 };
 
+export const updateTransaction = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const transaction = await FinanceModel.updateTransaction(id, req.body);
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction introuvable' });
+    }
+    res.json(transaction);
+  } catch (error) {
+    console.error('Error updating transaction:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 export const getGoal = async (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();

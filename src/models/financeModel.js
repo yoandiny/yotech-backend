@@ -92,6 +92,7 @@ export const FinanceModel = {
       tax_rate = 0,
       is_quote = false,
       quote_number,
+      quote_status = 'final',
       prestations_details,
       general_conditions,
       currency = 'MGA'
@@ -106,9 +107,9 @@ export const FinanceModel = {
         is_invoice, invoice_number, client_name, client_address, 
         client_nif, client_stat, client_email, client_phone, 
         due_date, tax_rate, tax_amount, total_amount,
-        is_quote, quote_number, prestations_details, general_conditions, currency
+        is_quote, quote_number, quote_status, prestations_details, general_conditions, currency
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING *
     `;
     const result = await query(sql, [
@@ -116,7 +117,74 @@ export const FinanceModel = {
       is_invoice, invoice_number, client_name, client_address,
       client_nif, client_stat, client_email, client_phone,
       due_date || null, tax_rate, tax_amount, total_amount,
-      is_quote, quote_number, prestations_details, general_conditions, currency
+      is_quote, quote_number, quote_status, prestations_details, general_conditions, currency
+    ]);
+    return result.rows[0];
+  },
+
+  updateTransaction: async (id, data) => {
+    const { 
+      description, 
+      amount, 
+      type, 
+      date,
+      is_invoice = false,
+      invoice_number,
+      client_name,
+      client_address,
+      client_nif,
+      client_stat,
+      client_email,
+      client_phone,
+      due_date,
+      tax_rate = 0,
+      is_quote = false,
+      quote_number,
+      quote_status = 'final',
+      prestations_details,
+      general_conditions,
+      currency = 'MGA'
+    } = data;
+
+    const parsedAmount = parseFloat(amount) || 0;
+    const parsedTaxRate = parseFloat(tax_rate) || 0;
+    const tax_amount = (is_invoice || is_quote) ? (parsedAmount * parsedTaxRate / 100) : 0;
+    const total_amount = (is_invoice || is_quote) ? (parsedAmount + tax_amount) : parsedAmount;
+
+    const sql = `
+      UPDATE finances SET
+        description = $1,
+        amount = $2,
+        type_transaction = $3,
+        date_transaction = $4,
+        is_invoice = $5,
+        invoice_number = $6,
+        client_name = $7,
+        client_address = $8,
+        client_nif = $9,
+        client_stat = $10,
+        client_email = $11,
+        client_phone = $12,
+        due_date = $13,
+        tax_rate = $14,
+        tax_amount = $15,
+        total_amount = $16,
+        is_quote = $17,
+        quote_number = $18,
+        quote_status = $19,
+        prestations_details = $20,
+        general_conditions = $21,
+        currency = $22
+      WHERE id = $23
+      RETURNING *
+    `;
+    const result = await query(sql, [
+      description, parsedAmount, type, date || new Date(),
+      is_invoice, invoice_number, client_name, client_address,
+      client_nif, client_stat, client_email, client_phone,
+      due_date || null, parsedTaxRate, tax_amount, total_amount,
+      is_quote, quote_number, quote_status, prestations_details, general_conditions, currency,
+      id
     ]);
     return result.rows[0];
   },
