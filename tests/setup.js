@@ -65,6 +65,33 @@ export async function setupTestDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS quotes (
+      id SERIAL PRIMARY KEY,
+      description TEXT NOT NULL,
+      amount DECIMAL(15, 2) NOT NULL,
+      type_transaction VARCHAR(20) NOT NULL DEFAULT 'revenu',
+      date_transaction DATE DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      client_name VARCHAR(255),
+      client_type VARCHAR(20) DEFAULT 'particulier',
+      client_address TEXT,
+      client_nif VARCHAR(20),
+      client_stat VARCHAR(20),
+      client_email VARCHAR(100),
+      client_phone VARCHAR(20),
+      due_date DATE,
+      tax_rate DECIMAL(5, 2) DEFAULT 0,
+      tax_amount DECIMAL(15, 2) DEFAULT 0,
+      total_amount DECIMAL(15, 2) DEFAULT 0,
+      quote_number VARCHAR(50) UNIQUE,
+      quote_status VARCHAR(20) DEFAULT 'final',
+      prestations_details TEXT,
+      general_conditions TEXT,
+      currency VARCHAR(3) DEFAULT 'MGA'
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS employees (
       id SERIAL PRIMARY KEY,
       full_name VARCHAR(100) NOT NULL,

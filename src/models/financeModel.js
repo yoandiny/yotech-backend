@@ -1,5 +1,43 @@
 import { query } from '../config/db.js';
 
+const ensureQuotesTableExists = async () => {
+  await query(`
+    CREATE TABLE IF NOT EXISTS quotes (
+      id SERIAL PRIMARY KEY,
+      description TEXT NOT NULL,
+      amount DECIMAL(15, 2) NOT NULL,
+      type_transaction VARCHAR(20) NOT NULL DEFAULT 'revenu',
+      date_transaction DATE DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      client_name VARCHAR(255),
+      client_type VARCHAR(20) DEFAULT 'particulier',
+      client_address TEXT,
+      client_nif VARCHAR(20),
+      client_stat VARCHAR(20),
+      client_email VARCHAR(100),
+      client_phone VARCHAR(20),
+      due_date DATE,
+      tax_rate DECIMAL(5, 2) DEFAULT 0,
+      tax_amount DECIMAL(15, 2) DEFAULT 0,
+      total_amount DECIMAL(15, 2) DEFAULT 0,
+      quote_number VARCHAR(50) UNIQUE,
+      quote_status VARCHAR(20) DEFAULT 'final',
+      prestations_details TEXT,
+      general_conditions TEXT,
+      currency VARCHAR(3) DEFAULT 'MGA'
+    )
+  `);
+
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS client_type VARCHAR(20) DEFAULT 'particulier'`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS client_nif VARCHAR(20)`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS client_stat VARCHAR(20)`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS quote_status VARCHAR(20) DEFAULT 'final'`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS quote_number VARCHAR(50) UNIQUE`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS prestations_details TEXT`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS general_conditions TEXT`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MGA'`);
+};
+
 export const FinanceModel = {
   getStats: async (year, startDate, endDate) => {
     let sql = `
@@ -75,6 +113,10 @@ export const FinanceModel = {
   },
 
   addTransaction: async (data) => {
+    if (data?.is_quote) {
+      return FinanceModel.createQuote(data);
+    }
+
     const { 
       description, 
       amount, 
@@ -123,6 +165,10 @@ export const FinanceModel = {
   },
 
   updateTransaction: async (id, data) => {
+    if (data?.is_quote) {
+      return FinanceModel.updateQuote(id, data);
+    }
+
     const { 
       description, 
       amount, 
@@ -211,21 +257,36 @@ export const FinanceModel = {
   },
 
   getHistory: async (month, year) => {
-    let sql = `SELECT * FROM finances WHERE 1=1`;
+    await ensureQuotesTableExists();
+
     const params = [];
+    let financeSql = `SELECT * FROM finances WHERE is_quote = FALSE`;
+    let whereClause = [];
 
     if (month) {
       params.push(month);
-      sql += ` AND EXTRACT(MONTH FROM date_transaction) = $${params.length}`;
+      whereClause.push(`EXTRACT(MONTH FROM date_transaction) = $${params.length}`);
     }
     if (year) {
       params.push(year);
-      sql += ` AND EXTRACT(YEAR FROM date_transaction) = $${params.length}`;
+      whereClause.push(`EXTRACT(YEAR FROM date_transaction) = $${params.length}`);
     }
 
-    sql += ` ORDER BY date_transaction DESC`;
-    const result = await query(sql, params);
-    return result.rows;
+    if (whereClause.length > 0) {
+      financeSql += ` AND ` + whereClause.join(' AND ');
+    }
+
+    financeSql += ` ORDER BY date_transaction DESC`;
+
+    const [financeResult, quoteResult] = await Promise.all([
+      query(financeSql, params),
+      query(`SELECT * FROM quotes ${whereClause.length > 0 ? `WHERE ${whereClause.join(' AND ')}` : ''} ORDER BY date_transaction DESC`, params)
+    ]);
+
+    const quotes = quoteResult.rows.map((row) => ({ ...row, is_quote: true, id_transaction: row.id }));
+    const transactions = financeResult.rows.map((row) => ({ ...row, is_quote: false, id_transaction: row.id }));
+
+    return [...transactions, ...quotes].sort((a, b) => new Date(b.date_transaction) - new Date(a.date_transaction));
   },
 
   getSettings: async () => {
@@ -275,10 +336,11 @@ export const FinanceModel = {
   },
 
   generateQuoteNumber: async () => {
+    await ensureQuotesTableExists();
     const currentYear = new Date().getFullYear();
     const result = await query(`
-      SELECT COUNT(*) as count FROM finances 
-      WHERE is_quote = true AND EXTRACT(YEAR FROM date_transaction) = $1
+      SELECT COUNT(*) as count FROM quotes 
+      WHERE EXTRACT(YEAR FROM date_transaction) = $1
     `, [currentYear]);
     const count = parseInt(result.rows[0].count) + 1;
     return `DEV-${currentYear}-${count.toString().padStart(4, '0')}`;
@@ -287,6 +349,165 @@ export const FinanceModel = {
   getTransactionById: async (id) => {
     const result = await query('SELECT * FROM finances WHERE id = $1', [id]);
     return result.rows[0];
+  },
+
+  getQuoteById: async (id) => {
+    await ensureQuotesTableExists();
+    const result = await query('SELECT * FROM quotes WHERE id = $1', [id]);
+    return result.rows[0];
+  },
+
+  getQuoteByNumber: async (quoteNumber) => {
+    await ensureQuotesTableExists();
+    const result = await query('SELECT * FROM quotes WHERE quote_number = $1', [quoteNumber]);
+    return result.rows[0];
+  },
+
+  createQuote: async (data) => {
+    await ensureQuotesTableExists();
+
+    const { 
+      description,
+      amount,
+      type = 'revenu',
+      date,
+      client_name,
+      client_type = 'particulier',
+      client_address,
+      client_nif,
+      client_stat,
+      client_email,
+      client_phone,
+      due_date,
+      tax_rate = 0,
+      quote_number,
+      quote_status = 'final',
+      prestations_details,
+      general_conditions,
+      currency = 'MGA'
+    } = data;
+
+    const parsedAmount = parseFloat(amount) || 0;
+    const parsedTaxRate = parseFloat(tax_rate) || 0;
+    const tax_amount = parsedAmount * parsedTaxRate / 100;
+    const total_amount = parsedAmount + tax_amount;
+
+    const sql = `
+      INSERT INTO quotes (
+        description, amount, type_transaction, date_transaction,
+        client_name, client_type, client_address, client_nif, client_stat,
+        client_email, client_phone, due_date, tax_rate, tax_amount, total_amount,
+        quote_number, quote_status, prestations_details, general_conditions, currency
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      RETURNING *
+    `;
+
+    const result = await query(sql, [
+      description, parsedAmount, type, date || new Date(),
+      client_name, client_type, client_address, client_nif || null, client_stat || null,
+      client_email, client_phone, due_date || null, parsedTaxRate, tax_amount, total_amount,
+      quote_number, quote_status, prestations_details, general_conditions, currency
+    ]);
+    return result.rows[0];
+  },
+
+  updateQuote: async (id, data) => {
+    await ensureQuotesTableExists();
+
+    const { 
+      description,
+      amount,
+      type = 'revenu',
+      date,
+      client_name,
+      client_type = 'particulier',
+      client_address,
+      client_nif,
+      client_stat,
+      client_email,
+      client_phone,
+      due_date,
+      tax_rate = 0,
+      quote_number,
+      quote_status = 'final',
+      prestations_details,
+      general_conditions,
+      currency = 'MGA'
+    } = data;
+
+    const parsedAmount = parseFloat(amount) || 0;
+    const parsedTaxRate = parseFloat(tax_rate) || 0;
+    const tax_amount = parsedAmount * parsedTaxRate / 100;
+    const total_amount = parsedAmount + tax_amount;
+
+    const sql = `
+      UPDATE quotes SET
+        description = $1,
+        amount = $2,
+        type_transaction = $3,
+        date_transaction = $4,
+        client_name = $5,
+        client_type = $6,
+        client_address = $7,
+        client_nif = $8,
+        client_stat = $9,
+        client_email = $10,
+        client_phone = $11,
+        due_date = $12,
+        tax_rate = $13,
+        tax_amount = $14,
+        total_amount = $15,
+        quote_number = $16,
+        quote_status = $17,
+        prestations_details = $18,
+        general_conditions = $19,
+        currency = $20
+      WHERE id = $21
+      RETURNING *
+    `;
+
+    const result = await query(sql, [
+      description, parsedAmount, type, date || new Date(),
+      client_name, client_type, client_address, client_nif || null, client_stat || null,
+      client_email, client_phone, due_date || null, parsedTaxRate, tax_amount, total_amount,
+      quote_number, quote_status, prestations_details, general_conditions, currency, id
+    ]);
+    return result.rows[0];
+  },
+
+  migrateQuotesFromFinances: async () => {
+    await ensureQuotesTableExists();
+
+    await query(`
+      INSERT INTO quotes (
+        description, amount, type_transaction, date_transaction, created_at,
+        client_name, client_type, client_address, client_nif, client_stat,
+        client_email, client_phone, due_date, tax_rate, tax_amount, total_amount,
+        quote_number, quote_status, prestations_details, general_conditions, currency
+      )
+      SELECT
+        description, amount, type_transaction, date_transaction, created_at,
+        client_name,
+        CASE
+          WHEN COALESCE(client_nif, '') <> '' OR COALESCE(client_stat, '') <> '' THEN 'entreprise'
+          ELSE 'particulier'
+        END,
+        client_address, client_nif, client_stat,
+        client_email, client_phone, due_date, tax_rate, tax_amount, total_amount,
+        quote_number, quote_status, prestations_details, general_conditions, currency
+      FROM finances
+      WHERE is_quote = TRUE
+        AND (
+          quote_number IS NULL OR NOT EXISTS (
+            SELECT 1 FROM quotes q WHERE q.quote_number = finances.quote_number
+          )
+        )
+    `);
+
+    await query(`DELETE FROM finances WHERE is_quote = TRUE`);
+
+    return true;
   },
 
   invoiceTransaction: async (id, data) => {

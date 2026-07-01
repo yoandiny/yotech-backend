@@ -3,6 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import apiRouter from './src/routes/index.js';
+import { initDb } from './src/db/init.js';
 
 dotenv.config();
 
@@ -19,6 +20,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
-app.listen(port, () => {
-  console.log(`YoTech Backend running on http://localhost:${port}`);
+initDb().then(() => {
+  app.listen(port, () => {
+    console.log(`YoTech Backend running on http://localhost:${port}`);
+  });
 });

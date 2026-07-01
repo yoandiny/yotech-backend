@@ -1,10 +1,75 @@
 import { query } from '../config/db.js';
 
-const initDb = async () => {
+const migrateQuotesFromFinances = async () => {
+  await query(`
+    CREATE TABLE IF NOT EXISTS quotes (
+      id SERIAL PRIMARY KEY,
+      description TEXT NOT NULL,
+      amount DECIMAL(15, 2) NOT NULL,
+      type_transaction VARCHAR(20) NOT NULL DEFAULT 'revenu',
+      date_transaction DATE DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      client_name VARCHAR(255),
+      client_type VARCHAR(20) DEFAULT 'particulier',
+      client_address TEXT,
+      client_nif VARCHAR(20),
+      client_stat VARCHAR(20),
+      client_email VARCHAR(100),
+      client_phone VARCHAR(20),
+      due_date DATE,
+      tax_rate DECIMAL(5, 2) DEFAULT 0,
+      tax_amount DECIMAL(15, 2) DEFAULT 0,
+      total_amount DECIMAL(15, 2) DEFAULT 0,
+      quote_number VARCHAR(50) UNIQUE,
+      quote_status VARCHAR(20) DEFAULT 'final',
+      prestations_details TEXT,
+      general_conditions TEXT,
+      currency VARCHAR(3) DEFAULT 'MGA'
+    )
+  `);
+
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS client_type VARCHAR(20) DEFAULT 'particulier'`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS client_nif VARCHAR(20)`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS client_stat VARCHAR(20)`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS quote_status VARCHAR(20) DEFAULT 'final'`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS quote_number VARCHAR(50) UNIQUE`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS prestations_details TEXT`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS general_conditions TEXT`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MGA'`);
+
+  await query(`
+    INSERT INTO quotes (
+      description, amount, type_transaction, date_transaction, created_at,
+      client_name, client_type, client_address, client_nif, client_stat,
+      client_email, client_phone, due_date, tax_rate, tax_amount, total_amount,
+      quote_number, quote_status, prestations_details, general_conditions, currency
+    )
+    SELECT
+      description, amount, type_transaction, date_transaction, created_at,
+      client_name,
+      CASE
+        WHEN COALESCE(client_nif, '') <> '' OR COALESCE(client_stat, '') <> '' THEN 'entreprise'
+        ELSE 'particulier'
+      END,
+      client_address, client_nif, client_stat,
+      client_email, client_phone, due_date, tax_rate, tax_amount, total_amount,
+      quote_number, quote_status, prestations_details, general_conditions, currency
+    FROM finances
+    WHERE is_quote = TRUE
+      AND (
+        quote_number IS NULL OR NOT EXISTS (
+          SELECT 1 FROM quotes q WHERE q.quote_number = finances.quote_number
+        )
+      )
+  `);
+
+  await query(`DELETE FROM finances WHERE is_quote = TRUE`);
+};
+
+export const initDb = async () => {
   try {
     console.log('Initializing database...');
     
-    // Create users table
     await query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -14,7 +79,6 @@ const initDb = async () => {
       )
     `);
 
-    // Create enum for priority if it doesn't exist
     await query(`
       DO $$ BEGIN
           CREATE TYPE priority_enum AS ENUM ('LOW', 'MEDIUM', 'HIGH');
@@ -23,7 +87,6 @@ const initDb = async () => {
       END $$;
     `);
 
-    // Create todos table
     await query(`
       CREATE TABLE IF NOT EXISTS todos (
           id SERIAL PRIMARY KEY,
@@ -36,16 +99,14 @@ const initDb = async () => {
       )
     `);
     
-    // Create finances table if it handles generic transactions
     await query(`
       CREATE TABLE IF NOT EXISTS finances (
         id SERIAL PRIMARY KEY,
         description TEXT NOT NULL,
         amount DECIMAL(15, 2) NOT NULL,
-        type_transaction VARCHAR(20) NOT NULL, -- 'revenu', 'dépense'
+        type_transaction VARCHAR(20) NOT NULL,
         date_transaction DATE DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        -- Invoice fields
         is_invoice BOOLEAN DEFAULT FALSE,
         invoice_number VARCHAR(50),
         client_name VARCHAR(255),
@@ -58,7 +119,6 @@ const initDb = async () => {
         tax_rate DECIMAL(5, 2) DEFAULT 0,
         tax_amount DECIMAL(15, 2) DEFAULT 0,
         total_amount DECIMAL(15, 2) DEFAULT 0,
-        -- Quote fields
         is_quote BOOLEAN DEFAULT FALSE,
         quote_number VARCHAR(50),
         quote_status VARCHAR(20) DEFAULT 'final',
@@ -73,7 +133,6 @@ const initDb = async () => {
       ADD COLUMN IF NOT EXISTS quote_status VARCHAR(20) DEFAULT 'final'
     `);
 
-    // Create employees table
     await query(`
       CREATE TABLE IF NOT EXISTS employees (
         id SERIAL PRIMARY KEY,
@@ -84,7 +143,7 @@ const initDb = async () => {
         cin_number VARCHAR(20),
         cnaps_number VARCHAR(20),
         ostie_number VARCHAR(20),
-        contract_type VARCHAR(10) DEFAULT 'CDI', -- 'CDI', 'CDD'
+        contract_type VARCHAR(10) DEFAULT 'CDI',
         is_social_subject BOOLEAN DEFAULT TRUE,
         children_count INTEGER DEFAULT 0,
         base_salary DECIMAL(15, 2) NOT NULL,
@@ -96,7 +155,6 @@ const initDb = async () => {
       )
     `);
 
-    // Create freelancers table
     await query(`
       CREATE TABLE IF NOT EXISTS freelancers (
         id SERIAL PRIMARY KEY,
@@ -111,21 +169,19 @@ const initDb = async () => {
       )
     `);
 
-    // Create hr_transactions table (advances, bonuses)
     await query(`
       CREATE TABLE IF NOT EXISTS hr_transactions (
         id SERIAL PRIMARY KEY,
         employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
-        type VARCHAR(20) NOT NULL, -- 'AVANCE', 'PRIME'
+        type VARCHAR(20) NOT NULL,
         amount DECIMAL(15, 2) NOT NULL,
         date_transaction DATE DEFAULT CURRENT_TIMESTAMP,
         description TEXT,
-        is_processed BOOLEAN DEFAULT FALSE, -- Set to true once included in a payroll
+        is_processed BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    // Create payrolls table
     await query(`
       CREATE TABLE IF NOT EXISTS payrolls (
         id SERIAL PRIMARY KEY,
@@ -148,7 +204,6 @@ const initDb = async () => {
       )
     `);
 
-    // Create settings table for company information
     await query(`
       CREATE TABLE IF NOT EXISTS settings (
         id SERIAL PRIMARY KEY,
@@ -158,21 +213,20 @@ const initDb = async () => {
         company_stat VARCHAR(20),
         company_email VARCHAR(100),
         company_phone VARCHAR(20),
-        tax_rate DECIMAL(5, 2) DEFAULT 20.00, -- Default TVA Madagascar
+        tax_rate DECIMAL(5, 2) DEFAULT 20.00,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    // Insert default settings if not exists
     await query(`
       INSERT INTO settings (company_name, company_address, company_nif, company_stat, company_email, company_phone, tax_rate)
       VALUES ('Votre Entreprise', 'Adresse de l''entreprise', '', '', '', '', 20.00)
       ON CONFLICT DO NOTHING
     `);
+
+    await migrateQuotesFromFinances();
   } catch (error) {
     console.error('Error initializing database:', error);
   }
 };
-
-initDb();

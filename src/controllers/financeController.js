@@ -356,15 +356,22 @@ export const getQuoteFormData = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const transactionResult = await FinanceModel.getTransactionById(id);
-    if (!transactionResult || !transactionResult.is_quote) {
-      return res.status(404).json({ error: 'Quote not found' });
+    let transactionResult = await FinanceModel.getQuoteById(id);
+    if (!transactionResult) {
+      transactionResult = await FinanceModel.getTransactionById(id);
+      if (!transactionResult || !transactionResult.is_quote) {
+        return res.status(404).json({ error: 'Quote not found' });
+      }
     }
 
     const settings = await FinanceModel.getSettings();
 
     res.json({
-      transaction: transactionResult,
+      transaction: {
+        ...transactionResult,
+        id_transaction: transactionResult.id,
+        client_type: transactionResult.client_type || 'particulier'
+      },
       settings: settings
     });
   } catch (error) {
