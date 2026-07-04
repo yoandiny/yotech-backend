@@ -1,9 +1,10 @@
 import express from 'express';
-import { login, updateProfile, updatePassword } from '../controllers/authController.js';
+import { casdoorCallback, login, updateProfile, updatePassword } from '../controllers/authController.js';
 
 const router = express.Router();
 
 router.post('/login', login);
+router.post('/casdoor/callback', casdoorCallback);
 router.put('/profile', updateProfile);
 router.put('/password', updatePassword);
 

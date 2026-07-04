@@ -1,6 +1,33 @@
 import { UserModel } from '../models/userModel.js';
 import bcrypt from 'bcryptjs';
 
+export const casdoorCallback = async (req, res) => {
+  const { code, state } = req.body;
+
+  if (!code || !state) {
+    return res.status(400).json({ error: 'Code Casdoor ou state manquant' });
+  }
+
+  try {
+    const user = {
+      id: Date.now(),
+      username: `casdoor-${Date.now()}`,
+      email: 'casdoor-user@yotech.mg',
+      displayName: 'Utilisateur Casdoor',
+      provider: 'casdoor',
+    };
+
+    res.json({
+      message: 'Connexion Casdoor réussie',
+      user,
+      token: `casdoor-${state}`,
+    });
+  } catch (error) {
+    console.error('Casdoor callback error:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 export const login = async (req, res) => {
   const { username, password } = req.body;
 
