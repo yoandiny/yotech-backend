@@ -97,6 +97,34 @@ export const updateTransaction = async (req, res) => {
   }
 };
 
+export const deleteTransaction = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await FinanceModel.delete(id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Transaction introuvable' });
+    }
+    res.json({ message: 'Transaction deleted successfully', deleted });
+  } catch (error) {
+    console.error('Error deleting transaction:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+export const getTransaction = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const transaction = await FinanceModel.getTransactionById(id);
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction introuvable' });
+    }
+    res.json(transaction);
+  } catch (error) {
+    console.error('Error fetching transaction:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 export const getGoal = async (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
