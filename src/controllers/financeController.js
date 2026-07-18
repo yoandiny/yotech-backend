@@ -49,6 +49,19 @@ export const getChartData = async (req, res) => {
   }
 };
 
+export const getExpensesByCategory = async (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const data = await FinanceModel.getExpensesByCategory(year);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching expenses by category:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+
+
 export const createTransaction = async (req, res) => {
   try {
     const transaction = await FinanceModel.addTransaction(req.body);

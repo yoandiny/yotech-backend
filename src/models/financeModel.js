@@ -112,16 +112,43 @@ export const FinanceModel = {
     return result.rows;
   },
 
+  getExpensesByCategory: async (year) => {
+    // Ensure the category column exists
+    await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
+
+    const currentYear = year || new Date().getFullYear();
+    const sql = `
+      SELECT
+        COALESCE(NULLIF(TRIM(category), ''), 'Autre') AS category,
+        SUM(amount) AS total
+      FROM finances
+      WHERE type_transaction = 'dépense'
+        AND is_quote = FALSE
+        AND EXTRACT(YEAR FROM date_transaction) = $1
+      GROUP BY COALESCE(NULLIF(TRIM(category), ''), 'Autre')
+      ORDER BY total DESC
+    `;
+    const result = await query(sql, [currentYear]);
+    return result.rows.map(row => ({
+      category: row.category,
+      total: parseFloat(row.total)
+    }));
+  },
+
   addTransaction: async (data) => {
     if (data?.is_quote) {
       return FinanceModel.createQuote(data);
     }
+
+    // Ensure the category column exists
+    await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
 
     const { 
       description, 
       amount, 
       type, 
       date,
+      category,
       is_invoice = false,
       invoice_number,
       client_name,
@@ -146,16 +173,18 @@ export const FinanceModel = {
     const sql = `
       INSERT INTO finances (
         description, amount, type_transaction, date_transaction,
+        category,
         is_invoice, invoice_number, client_name, client_address, 
         client_nif, client_stat, client_email, client_phone, 
         due_date, tax_rate, tax_amount, total_amount,
         is_quote, quote_number, quote_status, prestations_details, general_conditions, currency
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
       RETURNING *
     `;
     const result = await query(sql, [
       description, amount, type, date || new Date(),
+      category || null,
       is_invoice, invoice_number, client_name, client_address,
       client_nif, client_stat, client_email, client_phone,
       due_date || null, tax_rate, tax_amount, total_amount,
@@ -169,11 +198,15 @@ export const FinanceModel = {
       return FinanceModel.updateQuote(id, data);
     }
 
+    // Ensure the category column exists
+    await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
+
     const { 
       description, 
       amount, 
       type, 
       date,
+      category,
       is_invoice = false,
       invoice_number,
       client_name,
@@ -203,29 +236,31 @@ export const FinanceModel = {
         amount = $2,
         type_transaction = $3,
         date_transaction = $4,
-        is_invoice = $5,
-        invoice_number = $6,
-        client_name = $7,
-        client_address = $8,
-        client_nif = $9,
-        client_stat = $10,
-        client_email = $11,
-        client_phone = $12,
-        due_date = $13,
-        tax_rate = $14,
-        tax_amount = $15,
-        total_amount = $16,
-        is_quote = $17,
-        quote_number = $18,
-        quote_status = $19,
-        prestations_details = $20,
-        general_conditions = $21,
-        currency = $22
-      WHERE id = $23
+        category = $5,
+        is_invoice = $6,
+        invoice_number = $7,
+        client_name = $8,
+        client_address = $9,
+        client_nif = $10,
+        client_stat = $11,
+        client_email = $12,
+        client_phone = $13,
+        due_date = $14,
+        tax_rate = $15,
+        tax_amount = $16,
+        total_amount = $17,
+        is_quote = $18,
+        quote_number = $19,
+        quote_status = $20,
+        prestations_details = $21,
+        general_conditions = $22,
+        currency = $23
+      WHERE id = $24
       RETURNING *
     `;
     const result = await query(sql, [
       description, parsedAmount, type, date || new Date(),
+      category || null,
       is_invoice, invoice_number, client_name, client_address,
       client_nif, client_stat, client_email, client_phone,
       due_date || null, parsedTaxRate, tax_amount, total_amount,

@@ -1,7 +1,8 @@
 import express from 'express';
 import { 
   getStats, 
-  getChartData, 
+  getChartData,
+  getExpensesByCategory,
   createTransaction, 
   getHistory, 
   updateTransaction,
@@ -21,6 +22,7 @@ const router = express.Router();
 
 router.get('/stats', getStats);
 router.get('/chart', getChartData);
+router.get('/expenses-by-category', getExpensesByCategory);
 router.post('/', createTransaction);
 router.get('/history', getHistory);
 router.put('/:id', updateTransaction);
