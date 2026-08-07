@@ -255,6 +255,21 @@ export const initDb = async () => {
       ON CONFLICT DO NOTHING
     `);
 
+    await query(`
+      CREATE TABLE IF NOT EXISTS shares (
+        id SERIAL PRIMARY KEY,
+        company_name VARCHAR(255) NOT NULL,
+        ticker VARCHAR(50),
+        quantity DECIMAL(15, 4) NOT NULL DEFAULT 0,
+        buy_price DECIMAL(15, 2) NOT NULL DEFAULT 0,
+        current_price DECIMAL(15, 2) NOT NULL DEFAULT 0,
+        buy_date DATE DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     await migrateQuotesFromFinances();
   } catch (error) {
     console.error('Error initializing database:', error);
