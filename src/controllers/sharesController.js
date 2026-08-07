@@ -26,6 +26,27 @@ export const getShares = async (req, res) => {
       ORDER BY created_at DESC
     `);
 
+    const shares = result.rows.map(row => {
+      const quantity = parseFloat(row.quantity || 0);
+      const buyPrice = parseFloat(row.buy_price || 0);
+      const currentPrice = parseFloat(row.current_price || 0);
+      const totalInvested = parseFloat(row.total_invested || (quantity * buyPrice));
+      const currentVal = parseFloat(row.current_val || (quantity * currentPrice));
+      const gainLoss = parseFloat(row.gain_loss || (currentVal - totalInvested));
+      const gainLossPercent = totalInvested > 0 ? parseFloat(row.gain_loss_percent || (((currentPrice - buyPrice) / buyPrice) * 100)) : 0;
+
+      return {
+        ...row,
+        quantity,
+        buy_price: buyPrice,
+        current_price: currentPrice,
+        total_invested: totalInvested,
+        current_val: currentVal,
+        gain_loss: gainLoss,
+        gain_loss_percent: gainLossPercent
+      };
+    });
+
     // Calculer les statistiques globales du portefeuille d'actions
     const statsResult = await query(`
       SELECT 
@@ -37,19 +58,19 @@ export const getShares = async (req, res) => {
     `);
 
     const stats = statsResult.rows[0];
-    const totalInvested = parseFloat(stats.total_invested);
-    const totalCurrentVal = parseFloat(stats.total_current_value);
-    const totalGainLoss = parseFloat(stats.total_gain_loss);
+    const totalInvested = parseFloat(stats.total_invested || 0);
+    const totalCurrentVal = parseFloat(stats.total_current_value || 0);
+    const totalGainLoss = parseFloat(stats.total_gain_loss || 0);
     const totalGainLossPercent = totalInvested > 0 ? ((totalCurrentVal - totalInvested) / totalInvested) * 100 : 0;
 
     res.json({
-      shares: result.rows,
+      shares,
       summary: {
         totalInvested,
         totalCurrentVal,
         totalGainLoss,
         totalGainLossPercent,
-        totalPositions: parseInt(stats.total_positions, 10)
+        totalPositions: parseInt(stats.total_positions || 0, 10)
       }
     });
   } catch (error) {
@@ -63,7 +84,7 @@ export const createShare = async (req, res) => {
   try {
     const { company_name, ticker, quantity, buy_price, current_price, buy_date, notes } = req.body;
 
-    if (!company_name || !quantity || buy_price === undefined) {
+    if (!company_name || quantity === undefined || buy_price === undefined) {
       return res.status(400).json({ error: 'Nom de l’entreprise, quantité et prix d’achat sont requis' });
     }
 
