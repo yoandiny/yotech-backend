@@ -1,5 +1,10 @@
 import { UserModel } from '../models/userModel.js';
 import bcrypt from 'bcryptjs';
+import {
+  exchangeCodeForToken,
+  getCasdoorAccount,
+  mapCasdoorAccountToUser,
+} from '../services/casdoorService.js';
 
 export const casdoorCallback = async (req, res) => {
   const { code, state } = req.body;
@@ -9,22 +14,36 @@ export const casdoorCallback = async (req, res) => {
   }
 
   try {
+    const tokenData = await exchangeCodeForToken(code);
+    const account = await getCasdoorAccount(tokenData.access_token);
+    const casdoorUser = mapCasdoorAccountToUser(account);
+
+    let dbUser = null;
+    try {
+      dbUser = await UserModel.upsertCasdoorUser(casdoorUser);
+    } catch (dbError) {
+      console.warn('Casdoor user sync skipped:', dbError.message);
+    }
+
     const user = {
-      id: Date.now(),
-      username: `casdoor-${Date.now()}`,
-      email: 'casdoor-user@yotech.mg',
-      displayName: 'Utilisateur Casdoor',
+      id: dbUser?.id ?? casdoorUser.casdoorUserId,
+      username: casdoorUser.username,
+      email: casdoorUser.email,
+      displayName: casdoorUser.displayName,
+      avatar: casdoorUser.avatarUrl,
       provider: 'casdoor',
     };
 
     res.json({
       message: 'Connexion Casdoor réussie',
       user,
-      token: `casdoor-${state}`,
+      token: tokenData.access_token,
     });
   } catch (error) {
     console.error('Casdoor callback error:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(401).json({
+      error: error.message || 'Échec de la connexion avec Casdoor',
+    });
   }
 };
 
