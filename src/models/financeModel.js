@@ -355,16 +355,20 @@ export const FinanceModel = {
   },
 
   getSettings: async () => {
+    await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_rcs VARCHAR(100)`);
     const result = await query('SELECT * FROM settings LIMIT 1');
     return result.rows[0];
   },
 
   updateSettings: async (data) => {
+    await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_rcs VARCHAR(100)`);
+
     const { 
       company_name, 
       company_address, 
       company_nif, 
-      company_stat, 
+      company_stat,
+      company_rcs,
       company_email, 
       company_phone, 
       tax_rate 
@@ -376,39 +380,65 @@ export const FinanceModel = {
         company_address = $2,
         company_nif = $3,
         company_stat = $4,
-        company_email = $5,
-        company_phone = $6,
-        tax_rate = $7,
+        company_rcs = $5,
+        company_email = $6,
+        company_phone = $7,
+        tax_rate = $8,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = (SELECT id FROM settings LIMIT 1)
       RETURNING *
     `;
     const result = await query(sql, [
-      company_name, company_address, company_nif, company_stat, 
+      company_name, company_address, company_nif, company_stat, company_rcs || null,
       company_email, company_phone, tax_rate
     ]);
     return result.rows[0];
   },
 
   generateInvoiceNumber: async () => {
-    const currentYear = new Date().getFullYear();
+    const now = new Date();
+    const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const prefix = `FAC-YT-${yearMonth}-`;
+
     const result = await query(`
-      SELECT COUNT(*) as count FROM finances 
-      WHERE is_invoice = true AND EXTRACT(YEAR FROM date_transaction) = $1
-    `, [currentYear]);
-    const count = parseInt(result.rows[0].count) + 1;
-    return `INV-${currentYear}-${count.toString().padStart(4, '0')}`;
+      SELECT invoice_number FROM finances
+      WHERE is_invoice = true
+        AND invoice_number LIKE $1
+    `, [`${prefix}%`]);
+
+    let maxSeq = 0;
+    for (const row of result.rows) {
+      const match = String(row.invoice_number || '').match(/-C?(\d+)$/i);
+      if (match) {
+        maxSeq = Math.max(maxSeq, parseInt(match[1], 10));
+      }
+    }
+
+    const next = maxSeq + 1;
+    return `${prefix}C${String(next).padStart(2, '0')}`;
   },
 
   generateQuoteNumber: async () => {
     await ensureQuotesTableExists();
-    const currentYear = new Date().getFullYear();
+    const now = new Date();
+    const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const prefix = `DEV-YT-${yearMonth}-`;
+
     const result = await query(`
-      SELECT COUNT(*) as count FROM quotes 
-      WHERE EXTRACT(YEAR FROM date_transaction) = $1
-    `, [currentYear]);
-    const count = parseInt(result.rows[0].count) + 1;
-    return `DEV-${currentYear}-${count.toString().padStart(4, '0')}`;
+      SELECT quote_number FROM quotes
+      WHERE quote_number LIKE $1
+    `, [`${prefix}%`]);
+
+    let maxSeq = 0;
+    for (const row of result.rows) {
+      const match = String(row.quote_number || '').match(/-(\d+)$/);
+      if (match) {
+        maxSeq = Math.max(maxSeq, parseInt(match[1], 10));
+      }
+    }
+
+    const next = maxSeq + 1;
+    return `${prefix}${String(next).padStart(3, '0')}`;
   },
 
   getTransactionById: async (id) => {

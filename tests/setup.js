@@ -169,6 +169,7 @@ export async function setupTestDb() {
       company_address TEXT,
       company_nif VARCHAR(20),
       company_stat VARCHAR(20),
+      company_rcs VARCHAR(100),
       company_email VARCHAR(100),
       company_phone VARCHAR(20),
       tax_rate DECIMAL(5, 2) DEFAULT 20.00,

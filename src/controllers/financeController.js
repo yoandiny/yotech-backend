@@ -222,7 +222,7 @@ export const invoiceTransaction = async (req, res) => {
       invoiceData.tax_rate = settings.tax_rate || 0;
     }
     if (!invoiceData.invoice_number) {
-      return res.status(400).json({ error: 'Le numéro de facture est obligatoire.' });
+      invoiceData.invoice_number = await FinanceModel.generateInvoiceNumber();
     }
 
     const invoice = await FinanceModel.invoiceTransaction(id, invoiceData);
@@ -260,6 +260,7 @@ export const generateInvoicePDF = async (req, res) => {
     const companyAddress = settings.company_address || '101 Antananarivo, Madagascar';
     const companyNIF = settings.company_nif || '1000000000';
     const companySTAT = settings.company_stat || '1000000000';
+    const companyRCS = (settings.company_rcs || '').trim();
     const companyEmail = settings.company_email || 'contact@yotech-compute.com';
     const companyPhone = settings.company_phone || '';
 
@@ -307,6 +308,7 @@ export const generateInvoicePDF = async (req, res) => {
     doc.fillColor('#475569').font('Helvetica').fontSize(9);
     doc.text(companyAddress, 40, gridY + 30, { width: 200 });
     doc.text(`NIF: ${companyNIF} | STAT: ${companySTAT}`, 40, doc.y + 2);
+    if (companyRCS) doc.text(`RCS: ${companyRCS}`, 40, doc.y + 2);
     if (companyEmail) doc.text(companyEmail, 40, doc.y + 2);
 
     // À:
