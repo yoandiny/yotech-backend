@@ -111,6 +111,23 @@ export const deleteTransaction = async (req, res) => {
   }
 };
 
+export const deleteQuote = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await FinanceModel.deleteDraftQuote(id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Devis introuvable' });
+    }
+    res.json({ message: 'Devis brouillon supprimé', deleted });
+  } catch (error) {
+    console.error('Error deleting quote:', error);
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 export const getTransaction = async (req, res) => {
   try {
     const { id } = req.params;

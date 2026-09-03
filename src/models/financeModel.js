@@ -275,6 +275,36 @@ export const FinanceModel = {
     return result.rows[0];
   },
 
+  deleteDraftQuote: async (id) => {
+    await ensureQuotesTableExists();
+
+    const quote = await query('SELECT * FROM quotes WHERE id = $1', [id]);
+    if (quote.rows[0]) {
+      if (quote.rows[0].quote_status !== 'draft') {
+        const error = new Error('Seuls les devis en brouillon peuvent être supprimés');
+        error.status = 403;
+        throw error;
+      }
+      const result = await query('DELETE FROM quotes WHERE id = $1 AND quote_status = $2 RETURNING *', [id, 'draft']);
+      return result.rows[0];
+    }
+
+    const financeQuote = await query('SELECT * FROM finances WHERE id = $1 AND is_quote = TRUE', [id]);
+    if (!financeQuote.rows[0]) {
+      return null;
+    }
+    if ((financeQuote.rows[0].quote_status || 'final') !== 'draft') {
+      const error = new Error('Seuls les devis en brouillon peuvent être supprimés');
+      error.status = 403;
+      throw error;
+    }
+    const result = await query(
+      'DELETE FROM finances WHERE id = $1 AND is_quote = TRUE AND quote_status = $2 RETURNING *',
+      [id, 'draft']
+    );
+    return result.rows[0];
+  },
+
   getGoal: async (year) => {
     const result = await query('SELECT * FROM financial_goals WHERE year = $1', [year]);
     return result.rows[0];

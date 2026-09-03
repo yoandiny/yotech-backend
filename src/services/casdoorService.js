@@ -4,10 +4,14 @@ const getCasdoorConfig = () => {
   const clientSecret = process.env.CASDOOR_CLIENT_SECRET;
   const redirectUri = process.env.CASDOOR_REDIRECT_URI;
 
-  if (!url || !clientId || !clientSecret || !redirectUri) {
-    throw new Error(
-      'Configuration Casdoor incomplète (CASDOOR_URL, CASDOOR_CLIENT_ID, CASDOOR_CLIENT_SECRET, CASDOOR_REDIRECT_URI)'
-    );
+  const missing = [];
+  if (!url) missing.push('CASDOOR_URL');
+  if (!clientId) missing.push('CASDOOR_CLIENT_ID');
+  if (!clientSecret) missing.push('CASDOOR_CLIENT_SECRET');
+  if (!redirectUri) missing.push('CASDOOR_REDIRECT_URI');
+
+  if (missing.length > 0) {
+    throw new Error(`Configuration Casdoor incomplète : ${missing.join(', ')}`);
   }
 
   return { url, clientId, clientSecret, redirectUri };

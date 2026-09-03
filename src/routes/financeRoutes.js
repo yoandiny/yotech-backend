@@ -17,7 +17,8 @@ import {
   getInvoiceFormData,
   getQuoteFormData,
   getTransaction,
-  deleteTransaction
+  deleteTransaction,
+  deleteQuote
 } from '../controllers/financeController.js';
 
 const router = express.Router();
@@ -38,6 +39,7 @@ router.post('/:id/invoice', invoiceTransaction);
 router.get('/:id/pdf', generateInvoicePDF);
 router.get('/:id/invoice-data', getInvoiceFormData);
 router.get('/:id/quote-data', getQuoteFormData);
+router.delete('/quotes/:id', deleteQuote);
 router.get('/:id', getTransaction);
 router.delete('/:id', deleteTransaction);
 
