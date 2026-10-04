@@ -5,6 +5,7 @@ import todoRoutes from './todoRoutes.js';
 import hrRoutes from './hrRoutes.js';
 import missionRoutes from './missionRoutes.js';
 import sharesRoutes from './sharesRoutes.js';
+import clientRoutes from './clientRoutes.js';
 
 const router = express.Router();
 
@@ -14,5 +15,6 @@ router.use('/todos', todoRoutes);
 router.use('/hr', hrRoutes);
 router.use('/missions', missionRoutes);
 router.use('/shares', sharesRoutes);
+router.use('/clients', clientRoutes);
 
 export default router;

@@ -1,4 +1,5 @@
 import { query } from '../config/db.js';
+import { ClientModel, ensureClientsTable } from './clientModel.js';
 
 const ensureQuotesTableExists = async () => {
   await query(`
@@ -37,6 +38,7 @@ const ensureQuotesTableExists = async () => {
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS general_conditions TEXT`);
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MGA'`);
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
+  await ensureClientsTable();
 };
 
 export const FinanceModel = {
@@ -185,8 +187,20 @@ export const FinanceModel = {
       quote_status = 'final',
       prestations_details,
       general_conditions,
-      currency = 'MGA'
+      currency = 'MGA',
+      client_id
     } = data;
+
+    const linkedClient = await ClientModel.findOrCreateFromPayload({
+      client_id,
+      client_name,
+      client_type: data.client_type,
+      client_email,
+      client_phone,
+      client_address,
+      client_nif,
+      client_stat
+    });
     
     const tax_amount = (is_invoice || is_quote) ? (amount * tax_rate / 100) : 0;
     const total_amount = (is_invoice || is_quote) ? (amount + tax_amount) : amount;
@@ -198,9 +212,10 @@ export const FinanceModel = {
         is_invoice, invoice_number, client_name, client_address, 
         client_nif, client_stat, client_email, client_phone, 
         due_date, tax_rate, tax_amount, total_amount,
-        is_quote, quote_number, quote_status, prestations_details, general_conditions, currency
+        is_quote, quote_number, quote_status, prestations_details, general_conditions, currency,
+        client_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
       RETURNING *
     `;
     const result = await query(sql, [
@@ -209,7 +224,8 @@ export const FinanceModel = {
       is_invoice, invoice_number, client_name, client_address,
       client_nif, client_stat, client_email, client_phone,
       due_date || null, tax_rate, tax_amount, total_amount,
-      is_quote, quote_number, quote_status, prestations_details, general_conditions, currency
+      is_quote, quote_number, quote_status, prestations_details, general_conditions, currency,
+      linkedClient?.id || null
     ]);
     return result.rows[0];
   },
@@ -243,8 +259,20 @@ export const FinanceModel = {
       quote_status = 'final',
       prestations_details,
       general_conditions,
-      currency = 'MGA'
+      currency = 'MGA',
+      client_id
     } = data;
+
+    const linkedClient = await ClientModel.findOrCreateFromPayload({
+      client_id,
+      client_name,
+      client_type: data.client_type,
+      client_email,
+      client_phone,
+      client_address,
+      client_nif,
+      client_stat
+    });
 
     const parsedAmount = parseFloat(amount) || 0;
     const parsedTaxRate = parseFloat(tax_rate) || 0;
@@ -275,8 +303,9 @@ export const FinanceModel = {
         quote_status = $20,
         prestations_details = $21,
         general_conditions = $22,
-        currency = $23
-      WHERE id = $24
+        currency = $23,
+        client_id = $24
+      WHERE id = $25
       RETURNING *
     `;
     const result = await query(sql, [
@@ -286,6 +315,7 @@ export const FinanceModel = {
       client_nif, client_stat, client_email, client_phone,
       due_date || null, parsedTaxRate, tax_amount, total_amount,
       is_quote, quote_number, quote_status, prestations_details, general_conditions, currency,
+      linkedClient?.id || null,
       id
     ]);
     return result.rows[0];
@@ -501,8 +531,20 @@ export const FinanceModel = {
       prestations_details,
       general_conditions,
       currency = 'MGA',
-      category
+      category,
+      client_id
     } = data;
+
+    const linkedClient = await ClientModel.findOrCreateFromPayload({
+      client_id,
+      client_name,
+      client_type,
+      client_email,
+      client_phone,
+      client_address,
+      client_nif,
+      client_stat
+    });
 
     const parsedAmount = parseFloat(amount) || 0;
     const parsedTaxRate = parseFloat(tax_rate) || 0;
@@ -515,9 +557,9 @@ export const FinanceModel = {
         client_name, client_type, client_address, client_nif, client_stat,
         client_email, client_phone, due_date, tax_rate, tax_amount, total_amount,
         quote_number, quote_status, prestations_details, general_conditions, currency,
-        category
+        category, client_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING *
     `;
 
@@ -526,7 +568,7 @@ export const FinanceModel = {
       client_name, client_type, client_address, client_nif || null, client_stat || null,
       client_email, client_phone, due_date || null, parsedTaxRate, tax_amount, total_amount,
       quote_number, quote_status, prestations_details, general_conditions, currency,
-      category || null
+      category || null, linkedClient?.id || null
     ]);
     return result.rows[0];
   },
@@ -553,8 +595,20 @@ export const FinanceModel = {
       prestations_details,
       general_conditions,
       currency = 'MGA',
-      category
+      category,
+      client_id
     } = data;
+
+    const linkedClient = await ClientModel.findOrCreateFromPayload({
+      client_id,
+      client_name,
+      client_type,
+      client_email,
+      client_phone,
+      client_address,
+      client_nif,
+      client_stat
+    });
 
     const parsedAmount = parseFloat(amount) || 0;
     const parsedTaxRate = parseFloat(tax_rate) || 0;
@@ -583,8 +637,9 @@ export const FinanceModel = {
         prestations_details = $18,
         general_conditions = $19,
         currency = $20,
-        category = $21
-      WHERE id = $22
+        category = $21,
+        client_id = $22
+      WHERE id = $23
       RETURNING *
     `;
 
@@ -593,7 +648,7 @@ export const FinanceModel = {
       client_name, client_type, client_address, client_nif || null, client_stat || null,
       client_email, client_phone, due_date || null, parsedTaxRate, tax_amount, total_amount,
       quote_number, quote_status, prestations_details, general_conditions, currency,
-      category || null, id
+      category || null, linkedClient?.id || null, id
     ]);
     return result.rows[0];
   },
@@ -642,13 +697,25 @@ export const FinanceModel = {
       client_email,
       client_phone,
       due_date,
-      tax_rate = 0
+      tax_rate = 0,
+      client_id
     } = data;
 
     const transaction = await FinanceModel.getTransactionById(id).catch(() => null);
     if (!transaction) {
       return null;
     }
+
+    const linkedClient = await ClientModel.findOrCreateFromPayload({
+      client_id,
+      client_name,
+      client_type: data.client_type,
+      client_email,
+      client_phone,
+      client_address,
+      client_nif,
+      client_stat
+    });
 
     const tax_amount = parseFloat(transaction.amount) * parseFloat(tax_rate) / 100;
     const total_amount = parseFloat(transaction.amount) + tax_amount;
@@ -666,8 +733,9 @@ export const FinanceModel = {
         due_date = $8,
         tax_rate = $9,
         tax_amount = $10,
-        total_amount = $11
-      WHERE id = $12
+        total_amount = $11,
+        client_id = $12
+      WHERE id = $13
       RETURNING *
     `;
     const result = await query(sql, [
@@ -682,6 +750,7 @@ export const FinanceModel = {
       tax_rate,
       tax_amount,
       total_amount,
+      linkedClient?.id || null,
       id
     ]);
     return result.rows[0];
