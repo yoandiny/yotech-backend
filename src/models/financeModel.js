@@ -113,10 +113,20 @@ export const FinanceModel = {
     return result.rows;
   },
 
-  getTransactionsByCategory: async (type, year) => {
+  getTransactionsByCategory: async (type, year, month) => {
     await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
 
-    const currentYear = year || new Date().getFullYear();
+    const currentYear = parseInt(year, 10) || new Date().getFullYear();
+    const parsedMonth = parseInt(month, 10);
+    const hasMonth = Number.isInteger(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12;
+
+    const params = [type, currentYear];
+    let monthClause = '';
+    if (hasMonth) {
+      params.push(parsedMonth);
+      monthClause = ` AND EXTRACT(MONTH FROM date_transaction) = $${params.length}`;
+    }
+
     const sql = `
       SELECT
         COALESCE(NULLIF(TRIM(category), ''), 'Autre') AS category,
@@ -126,10 +136,11 @@ export const FinanceModel = {
       WHERE type_transaction = $1
         AND is_quote = FALSE
         AND EXTRACT(YEAR FROM date_transaction) = $2
+        ${monthClause}
       GROUP BY COALESCE(NULLIF(TRIM(category), ''), 'Autre')
       ORDER BY total DESC
     `;
-    const result = await query(sql, [type, currentYear]);
+    const result = await query(sql, params);
     return result.rows.map(row => ({
       category: row.category,
       total: parseFloat(row.total),
@@ -137,12 +148,12 @@ export const FinanceModel = {
     }));
   },
 
-  getExpensesByCategory: async (year) => {
-    return FinanceModel.getTransactionsByCategory('dépense', year);
+  getExpensesByCategory: async (year, month) => {
+    return FinanceModel.getTransactionsByCategory('dépense', year, month);
   },
 
-  getIncomeByCategory: async (year) => {
-    return FinanceModel.getTransactionsByCategory('revenu', year);
+  getIncomeByCategory: async (year, month) => {
+    return FinanceModel.getTransactionsByCategory('revenu', year, month);
   },
 
   addTransaction: async (data) => {

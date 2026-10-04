@@ -52,7 +52,8 @@ export const getChartData = async (req, res) => {
 export const getExpensesByCategory = async (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
-    const data = await FinanceModel.getExpensesByCategory(year);
+    const month = req.query.month;
+    const data = await FinanceModel.getExpensesByCategory(year, month);
     res.json(data);
   } catch (error) {
     console.error('Error fetching expenses by category:', error);
@@ -63,7 +64,8 @@ export const getExpensesByCategory = async (req, res) => {
 export const getIncomeByCategory = async (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
-    const data = await FinanceModel.getIncomeByCategory(year);
+    const month = req.query.month;
+    const data = await FinanceModel.getIncomeByCategory(year, month);
     res.json(data);
   } catch (error) {
     console.error('Error fetching income by category:', error);
