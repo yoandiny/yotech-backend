@@ -36,6 +36,7 @@ const migrateQuotesFromFinances = async () => {
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS prestations_details TEXT`);
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS general_conditions TEXT`);
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MGA'`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
 
   await query(`
     INSERT INTO quotes (
@@ -161,6 +162,11 @@ export const initDb = async () => {
     await query(`
       ALTER TABLE finances
       ADD COLUMN IF NOT EXISTS quote_status VARCHAR(20) DEFAULT 'final'
+    `);
+
+    await query(`
+      ALTER TABLE finances
+      ADD COLUMN IF NOT EXISTS category VARCHAR(100)
     `);
 
     await query(`

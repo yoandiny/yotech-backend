@@ -60,6 +60,17 @@ export const getExpensesByCategory = async (req, res) => {
   }
 };
 
+export const getIncomeByCategory = async (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const data = await FinanceModel.getIncomeByCategory(year);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching income by category:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 
 
 export const createTransaction = async (req, res) => {

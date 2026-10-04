@@ -36,6 +36,7 @@ const ensureQuotesTableExists = async () => {
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS prestations_details TEXT`);
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS general_conditions TEXT`);
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MGA'`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
 };
 
 export const FinanceModel = {
@@ -112,27 +113,36 @@ export const FinanceModel = {
     return result.rows;
   },
 
-  getExpensesByCategory: async (year) => {
-    // Ensure the category column exists
+  getTransactionsByCategory: async (type, year) => {
     await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
 
     const currentYear = year || new Date().getFullYear();
     const sql = `
       SELECT
         COALESCE(NULLIF(TRIM(category), ''), 'Autre') AS category,
-        SUM(amount) AS total
+        SUM(amount) AS total,
+        COUNT(*) AS count
       FROM finances
-      WHERE type_transaction = 'dépense'
+      WHERE type_transaction = $1
         AND is_quote = FALSE
-        AND EXTRACT(YEAR FROM date_transaction) = $1
+        AND EXTRACT(YEAR FROM date_transaction) = $2
       GROUP BY COALESCE(NULLIF(TRIM(category), ''), 'Autre')
       ORDER BY total DESC
     `;
-    const result = await query(sql, [currentYear]);
+    const result = await query(sql, [type, currentYear]);
     return result.rows.map(row => ({
       category: row.category,
-      total: parseFloat(row.total)
+      total: parseFloat(row.total),
+      count: parseInt(row.count, 10)
     }));
+  },
+
+  getExpensesByCategory: async (year) => {
+    return FinanceModel.getTransactionsByCategory('dépense', year);
+  },
+
+  getIncomeByCategory: async (year) => {
+    return FinanceModel.getTransactionsByCategory('revenu', year);
   },
 
   addTransaction: async (data) => {
@@ -479,7 +489,8 @@ export const FinanceModel = {
       quote_status = 'final',
       prestations_details,
       general_conditions,
-      currency = 'MGA'
+      currency = 'MGA',
+      category
     } = data;
 
     const parsedAmount = parseFloat(amount) || 0;
@@ -492,9 +503,10 @@ export const FinanceModel = {
         description, amount, type_transaction, date_transaction,
         client_name, client_type, client_address, client_nif, client_stat,
         client_email, client_phone, due_date, tax_rate, tax_amount, total_amount,
-        quote_number, quote_status, prestations_details, general_conditions, currency
+        quote_number, quote_status, prestations_details, general_conditions, currency,
+        category
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING *
     `;
 
@@ -502,7 +514,8 @@ export const FinanceModel = {
       description, parsedAmount, type, date || new Date(),
       client_name, client_type, client_address, client_nif || null, client_stat || null,
       client_email, client_phone, due_date || null, parsedTaxRate, tax_amount, total_amount,
-      quote_number, quote_status, prestations_details, general_conditions, currency
+      quote_number, quote_status, prestations_details, general_conditions, currency,
+      category || null
     ]);
     return result.rows[0];
   },
@@ -528,7 +541,8 @@ export const FinanceModel = {
       quote_status = 'final',
       prestations_details,
       general_conditions,
-      currency = 'MGA'
+      currency = 'MGA',
+      category
     } = data;
 
     const parsedAmount = parseFloat(amount) || 0;
@@ -557,8 +571,9 @@ export const FinanceModel = {
         quote_status = $17,
         prestations_details = $18,
         general_conditions = $19,
-        currency = $20
-      WHERE id = $21
+        currency = $20,
+        category = $21
+      WHERE id = $22
       RETURNING *
     `;
 
@@ -566,7 +581,8 @@ export const FinanceModel = {
       description, parsedAmount, type, date || new Date(),
       client_name, client_type, client_address, client_nif || null, client_stat || null,
       client_email, client_phone, due_date || null, parsedTaxRate, tax_amount, total_amount,
-      quote_number, quote_status, prestations_details, general_conditions, currency, id
+      quote_number, quote_status, prestations_details, general_conditions, currency,
+      category || null, id
     ]);
     return result.rows[0];
   },

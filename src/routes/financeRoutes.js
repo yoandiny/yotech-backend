@@ -3,6 +3,7 @@ import {
   getStats, 
   getChartData,
   getExpensesByCategory,
+  getIncomeByCategory,
   createTransaction, 
   getHistory, 
   updateTransaction,
@@ -26,6 +27,7 @@ const router = express.Router();
 router.get('/stats', getStats);
 router.get('/chart', getChartData);
 router.get('/expenses-by-category', getExpensesByCategory);
+router.get('/income-by-category', getIncomeByCategory);
 router.post('/', createTransaction);
 router.get('/history', getHistory);
 router.put('/:id', updateTransaction);
