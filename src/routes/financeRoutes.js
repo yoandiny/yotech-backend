@@ -19,7 +19,9 @@ import {
   getQuoteFormData,
   getTransaction,
   deleteTransaction,
-  deleteQuote
+  deleteQuote,
+  acceptQuote,
+  duplicateQuote
 } from '../controllers/financeController.js';
 
 const router = express.Router();
@@ -41,6 +43,8 @@ router.post('/:id/invoice', invoiceTransaction);
 router.get('/:id/pdf', generateInvoicePDF);
 router.get('/:id/invoice-data', getInvoiceFormData);
 router.get('/:id/quote-data', getQuoteFormData);
+router.post('/quotes/:id/accept', acceptQuote);
+router.post('/quotes/:id/duplicate', duplicateQuote);
 router.delete('/quotes/:id', deleteQuote);
 router.get('/:id', getTransaction);
 router.delete('/:id', deleteTransaction);

@@ -21,7 +21,8 @@ export const MissionController = {
     try {
       const m = await MissionModel.getById(req.params.id);
       if (!m) return res.status(404).json({ message: 'Mission introuvable' });
-      res.json(m);
+      const stages = await MissionModel.getStages(req.params.id);
+      res.json({ ...m, stages });
     } catch (e) { res.status(500).json({ message: e.message }); }
   },
 
@@ -63,6 +64,7 @@ export const MissionController = {
     try {
       const mission = await MissionModel.getById(req.params.id);
       if (!mission) return res.status(404).json({ message: 'Mission introuvable' });
+      if (mission.quote_id) return res.status(400).json({ message: 'Cette mission est déjà payée via le devis' });
       if (mission.acompte_paid) return res.status(400).json({ message: 'Acompte déjà enregistré' });
 
       const amount = parseFloat(mission.acompte_amount);
@@ -96,6 +98,7 @@ export const MissionController = {
     try {
       const mission = await MissionModel.getById(req.params.id);
       if (!mission) return res.status(404).json({ message: 'Mission introuvable' });
+      if (mission.quote_id) return res.status(400).json({ message: 'Cette mission est déjà payée via le devis' });
       if (mission.final_paid) return res.status(400).json({ message: 'Paiement final déjà enregistré' });
 
       const amount = parseFloat(mission.final_amount);
@@ -135,6 +138,45 @@ export const MissionController = {
     try {
       const data = { ...req.body, mission_id: req.params.id };
       res.status(201).json(await MissionModel.addUpdate(data));
+    } catch (e) { res.status(500).json({ message: e.message }); }
+  },
+
+  getStages: async (req, res) => {
+    try {
+      const mission = await MissionModel.getById(req.params.id);
+      if (!mission) return res.status(404).json({ message: 'Mission introuvable' });
+      const stages = await MissionModel.getStages(req.params.id);
+      res.json(stages);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+  },
+
+  addStage: async (req, res) => {
+    try {
+      const title = String(req.body?.title || '').trim();
+      if (!title) return res.status(400).json({ message: 'Titre d\'étape requis' });
+      const mission = await MissionModel.getById(req.params.id);
+      if (!mission) return res.status(404).json({ message: 'Mission introuvable' });
+      const result = await MissionModel.addStage(req.params.id, title);
+      const stages = await MissionModel.getStages(req.params.id);
+      res.status(201).json({ ...result, stages });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+  },
+
+  toggleStage: async (req, res) => {
+    try {
+      const result = await MissionModel.toggleStage(req.params.id, req.params.stageId, req.body?.done);
+      if (!result) return res.status(404).json({ message: 'Étape introuvable' });
+      const stages = await MissionModel.getStages(req.params.id);
+      res.json({ ...result, stages });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+  },
+
+  deleteStage: async (req, res) => {
+    try {
+      const result = await MissionModel.deleteStage(req.params.id, req.params.stageId);
+      if (!result) return res.status(404).json({ message: 'Étape introuvable' });
+      const stages = await MissionModel.getStages(req.params.id);
+      res.json({ ...result, stages });
     } catch (e) { res.status(500).json({ message: e.message }); }
   },
 };

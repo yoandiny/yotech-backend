@@ -1,4 +1,5 @@
 import { FinanceModel } from '../models/financeModel.js';
+import { MissionModel } from '../models/missionModel.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -106,6 +107,9 @@ export const updateTransaction = async (req, res) => {
     res.json(transaction);
   } catch (error) {
     console.error('Error updating transaction:', error);
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };
@@ -138,6 +142,108 @@ export const deleteQuote = async (req, res) => {
       return res.status(error.status).json({ error: error.message });
     }
     res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+export const duplicateQuote = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const duplicated = await FinanceModel.duplicateQuote(id);
+    if (!duplicated) {
+      return res.status(404).json({ error: 'Devis introuvable' });
+    }
+    res.status(201).json({
+      ...duplicated,
+      is_quote: true,
+      id_transaction: duplicated.id
+    });
+  } catch (error) {
+    console.error('Error duplicating quote:', error);
+    res.status(500).json({ error: error.message || 'Internal Server Error' });
+  }
+};
+
+export const acceptQuote = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const quote = await FinanceModel.getQuoteById(id);
+    if (!quote) {
+      return res.status(404).json({ error: 'Devis introuvable' });
+    }
+    if (quote.quote_status === 'draft') {
+      return res.status(400).json({ error: 'Finalisez le devis avant d\'enregistrer le paiement' });
+    }
+    if (quote.quote_status === 'accepted' || quote.mission_id) {
+      return res.status(409).json({ error: 'Ce devis a déjà été validé' });
+    }
+
+    const paidAmount = parseFloat(quote.total_amount || quote.amount) || 0;
+    const today = req.body?.date || new Date().toISOString().split('T')[0];
+
+    const transaction = await FinanceModel.addTransaction({
+      description: `Paiement devis ${quote.quote_number} — ${quote.description}`,
+      amount: paidAmount,
+      type: 'revenu',
+      date: today,
+      category: quote.category || 'Prestation',
+      currency: quote.currency || 'MGA',
+      client_name: quote.client_name,
+      client_type: quote.client_type,
+      client_email: quote.client_email,
+      client_phone: quote.client_phone,
+      client_address: quote.client_address,
+      client_nif: quote.client_nif,
+      client_stat: quote.client_stat,
+      client_id: quote.client_id,
+    });
+
+    const mission = await MissionModel.create({
+      title: quote.description,
+      description: quote.prestations_details || null,
+      client_name: quote.client_name || 'Client',
+      client_email: quote.client_email,
+      client_phone: quote.client_phone,
+      status: 'en_cours',
+      progress: 0,
+      priority: 'normale',
+      start_date: today,
+      deadline: quote.due_date || null,
+      budget: paidAmount,
+      currency: quote.currency || 'MGA',
+      category: quote.category || null,
+      notes: `Mission créée automatiquement depuis le devis ${quote.quote_number}`,
+      quote_id: quote.id,
+      finance_id: transaction.id,
+      client_id: quote.client_id,
+      acompte_paid: true,
+      acompte_date: today,
+      acompte_finance_id: transaction.id,
+      final_paid: true,
+      final_date: today,
+      final_finance_id: transaction.id,
+    });
+
+    await MissionModel.addUpdate({
+      mission_id: mission.id,
+      author: 'Système',
+      title: 'Mission créée',
+      content: `Paiement reçu pour le devis ${quote.quote_number}. La mission démarre.`,
+      progress_snapshot: 0,
+    });
+
+    const updatedQuote = await FinanceModel.markQuoteAccepted(quote.id, {
+      mission_id: mission.id,
+      finance_id: transaction.id,
+    });
+
+    res.json({
+      quote: { ...updatedQuote, is_quote: true, id_transaction: updatedQuote.id },
+      transaction,
+      mission
+    });
+  } catch (error) {
+    console.error('Error accepting quote:', error);
+    res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 };
 

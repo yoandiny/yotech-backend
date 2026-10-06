@@ -37,13 +37,13 @@ CREATE TABLE IF NOT EXISTS missions (
   acompte_amount   DECIMAL(15, 2) DEFAULT 0,    -- montant calculé de l'acompte
   acompte_paid     BOOLEAN        DEFAULT FALSE, -- acompte déjà versé ?
   acompte_date     DATE,                        -- date du versement
-  acompte_finance_id INTEGER,                   -- lien vers la transaction finances
+  acompte_finance_id VARCHAR(64),               -- lien vers la transaction finances
 
   -- Paiement final (solde)
   final_amount     DECIMAL(15, 2) DEFAULT 0,    -- budget - acompte_amount
   final_paid       BOOLEAN        DEFAULT FALSE,
   final_date       DATE,
-  final_finance_id INTEGER,                     -- lien vers la transaction finances
+  final_finance_id VARCHAR(64),                 -- lien vers la transaction finances
 
   -- Tags / Catégorie
   category VARCHAR(100),
@@ -96,7 +96,23 @@ CREATE TABLE IF NOT EXISTS mission_updates (
   created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS quote_id INTEGER;
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS finance_id VARCHAR(64);
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS client_id INTEGER;
+
+-- Étapes de suivi d'avancement
+CREATE TABLE IF NOT EXISTS mission_stages (
+  id         SERIAL PRIMARY KEY,
+  mission_id INTEGER NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  title      VARCHAR(255) NOT NULL,
+  position   INTEGER NOT NULL DEFAULT 0,
+  done       BOOLEAN NOT NULL DEFAULT FALSE,
+  done_at    TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Index
 CREATE INDEX IF NOT EXISTS idx_missions_status     ON missions(status);
 CREATE INDEX IF NOT EXISTS idx_missions_priority   ON missions(priority);
 CREATE INDEX IF NOT EXISTS idx_mission_updates_mid ON mission_updates(mission_id);
+CREATE INDEX IF NOT EXISTS idx_mission_stages_mid  ON mission_stages(mission_id);

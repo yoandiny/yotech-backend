@@ -38,6 +38,9 @@ const ensureQuotesTableExists = async () => {
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS general_conditions TEXT`);
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MGA'`);
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS mission_id INTEGER`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS finance_id VARCHAR(64)`);
+  await query(`ALTER TABLE quotes ALTER COLUMN finance_id TYPE VARCHAR(64) USING finance_id::text`);
   await ensureClientsTable();
 };
 
@@ -576,6 +579,13 @@ export const FinanceModel = {
   updateQuote: async (id, data) => {
     await ensureQuotesTableExists();
 
+    const existing = await query('SELECT * FROM quotes WHERE id = $1', [id]);
+    if (existing.rows[0]?.quote_status === 'accepted') {
+      const error = new Error('Un devis validé ne peut plus être modifié');
+      error.status = 403;
+      throw error;
+    }
+
     const { 
       description,
       amount,
@@ -754,5 +764,49 @@ export const FinanceModel = {
       id
     ]);
     return result.rows[0];
+  },
+
+  markQuoteAccepted: async (id, { mission_id, finance_id }) => {
+    await ensureQuotesTableExists();
+    const result = await query(
+      `UPDATE quotes
+       SET quote_status = 'accepted',
+           mission_id = $2,
+           finance_id = $3
+       WHERE id = $1
+       RETURNING *`,
+      [id, mission_id, finance_id]
+    );
+    return result.rows[0];
+  },
+
+  duplicateQuote: async (id) => {
+    await ensureQuotesTableExists();
+    const quote = await FinanceModel.getQuoteById(id);
+    if (!quote) return null;
+
+    const quote_number = await FinanceModel.generateQuoteNumber();
+    return FinanceModel.createQuote({
+      description: quote.description,
+      amount: quote.amount,
+      type: quote.type_transaction || 'revenu',
+      date: new Date(),
+      client_name: quote.client_name,
+      client_type: quote.client_type || 'particulier',
+      client_address: quote.client_address,
+      client_nif: quote.client_nif,
+      client_stat: quote.client_stat,
+      client_email: quote.client_email,
+      client_phone: quote.client_phone,
+      due_date: quote.due_date,
+      tax_rate: quote.tax_rate || 0,
+      quote_number,
+      quote_status: 'draft',
+      prestations_details: quote.prestations_details,
+      general_conditions: quote.general_conditions,
+      currency: quote.currency || 'MGA',
+      category: quote.category,
+      client_id: quote.client_id
+    });
   }
 };
