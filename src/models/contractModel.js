@@ -44,10 +44,14 @@ export const ensureContractsTable = async () => {
 const normalizePayload = async (data = {}) => {
   const answers = data.answers && typeof data.answers === 'object' ? data.answers : {};
   const title = String(data.title || answers.title || 'Contrat de prestation').trim();
-  const amount = parseFloat(data.amount ?? answers.amount) || 0;
   const taxRate = parseFloat(data.tax_rate ?? answers.tax_rate) || 0;
-  const taxAmount = amount * taxRate / 100;
-  const totalAmount = amount + taxAmount;
+  const enteredTtc = parseFloat(data.total_amount ?? answers.total_ttc ?? answers.amount) || 0;
+  const priceIsTtc = answers.price_is_ttc !== false;
+  const totalAmount = priceIsTtc || answers.total_ttc != null
+    ? enteredTtc
+    : enteredTtc + enteredTtc * taxRate / 100;
+  const amountHT = taxRate > 0 ? totalAmount / (1 + taxRate / 100) : totalAmount;
+  const taxAmount = totalAmount - amountHT;
 
   const linkedClient = await ClientModel.findOrCreateFromPayload({
     client_id: data.client_id || answers.client_id,
@@ -75,7 +79,7 @@ const normalizePayload = async (data = {}) => {
     client_phone: data.client_phone || answers.client_phone || linkedClient?.phone || null,
     start_date: data.start_date || answers.start_date || null,
     end_date: data.end_date || answers.end_date || null,
-    amount,
+    amount: amountHT,
     tax_rate: taxRate,
     tax_amount: taxAmount,
     total_amount: totalAmount,
@@ -86,7 +90,8 @@ const normalizePayload = async (data = {}) => {
       title,
       client_id: linkedClient?.id || answers.client_id || null,
       client_name: data.client_name || answers.client_name || linkedClient?.name || '',
-      amount,
+      total_ttc: totalAmount,
+      price_is_ttc: true,
       tax_rate: taxRate,
       currency: data.currency || answers.currency || 'MGA'
     }
