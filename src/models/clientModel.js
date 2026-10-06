@@ -146,8 +146,12 @@ export const ClientModel = {
     }
 
     const missionsTable = await query("SELECT to_regclass('public.missions') AS exists");
+    const contractsTable = await query("SELECT to_regclass('public.contracts') AS exists");
     const missionsCountSql = missionsTable.rows[0]?.exists
       ? '(SELECT COUNT(*) FROM missions m WHERE m.client_id = c.id)'
+      : '0';
+    const contractsCountSql = contractsTable.rows[0]?.exists
+      ? '(SELECT COUNT(*) FROM contracts ct WHERE ct.client_id = c.id)'
       : '0';
 
     const result = await query(`
@@ -156,7 +160,8 @@ export const ClientModel = {
         (SELECT COUNT(*) FROM quotes q WHERE q.client_id = c.id) AS quotes_count,
         (SELECT COUNT(*) FROM finances f WHERE f.client_id = c.id AND f.is_quote = FALSE) AS transactions_count,
         (SELECT COUNT(*) FROM finances f WHERE f.client_id = c.id AND f.is_invoice = TRUE) AS invoices_count,
-        ${missionsCountSql} AS missions_count
+        ${missionsCountSql} AS missions_count,
+        ${contractsCountSql} AS contracts_count
       FROM clients c
       ${where}
       ORDER BY c.name ASC
@@ -167,7 +172,8 @@ export const ClientModel = {
       quotes_count: parseInt(row.quotes_count, 10) || 0,
       transactions_count: parseInt(row.transactions_count, 10) || 0,
       invoices_count: parseInt(row.invoices_count, 10) || 0,
-      missions_count: parseInt(row.missions_count, 10) || 0
+      missions_count: parseInt(row.missions_count, 10) || 0,
+      contracts_count: parseInt(row.contracts_count, 10) || 0
     }));
   },
 
