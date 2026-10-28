@@ -1,5 +1,4 @@
 import { UserModel } from '../models/userModel.js';
-import bcrypt from 'bcryptjs';
 import {
   exchangeCodeForToken,
   getCasdoorAccount,
@@ -51,36 +50,8 @@ export const casdoorCallback = async (req, res) => {
   }
 };
 
-export const login = async (req, res) => {
-  const { username, password } = req.body;
-
-  try {
-    const user = await UserModel.findByUsername(username);
-
-    if (!user || !user.password) {
-      return res.status(401).json({ error: 'Utilisateur non trouvé' });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Mot de passe incorrect' });
-    }
-
-    res.json({
-      message: 'Connexion réussie',
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        displayName: user.display_name || user.username,
-        role: user.role || 'admin',
-        provider: user.provider || 'local'
-      }
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
+export const login = async (_req, res) => {
+  return res.status(400).json({ error: 'La connexion se fait uniquement via Casdoor.' });
 };
 
 export const updateProfile = async (req, res) => {
@@ -100,32 +71,6 @@ export const updateProfile = async (req, res) => {
   }
 };
 
-export const updatePassword = async (req, res) => {
-  const { id, currentPassword, newPassword } = req.body;
-  
-  if (!newPassword || newPassword.length < 6) {
-    return res.status(400).json({ error: 'Le nouveau mot de passe doit contenir au moins 6 caractères' });
-  }
-
-  try {
-    const user = await UserModel.findById(id);
-    if (!user) {
-      return res.status(404).json({ error: 'Utilisateur non trouvé' });
-    }
-
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Mot de passe actuel incorrect' });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-    
-    await UserModel.updatePassword(id, hashedPassword);
-    
-    res.json({ message: 'Mot de passe mis à jour avec succès' });
-  } catch (error) {
-    console.error('Password update error:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
+export const updatePassword = async (_req, res) => {
+  return res.status(400).json({ error: 'Les mots de passe se gèrent dans Casdoor.' });
 };

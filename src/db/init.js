@@ -75,8 +75,7 @@ export const initDb = async () => {
     await query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
-        username VARCHAR(50) UNIQUE,
-        password VARCHAR(100),
+        username VARCHAR(255) UNIQUE,
         email VARCHAR(255),
         provider VARCHAR(50) DEFAULT 'local',
         casdoor_user_id VARCHAR(255) UNIQUE,
@@ -123,6 +122,13 @@ export const initDb = async () => {
     await query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS casdoor_roles TEXT
+    `);
+
+    await query(`
+      ALTER TABLE users ALTER COLUMN password DROP NOT NULL
+    `).catch(() => {});
+    await query(`
+      ALTER TABLE users DROP COLUMN IF EXISTS password
     `);
 
     await query(`

@@ -4,6 +4,8 @@ const ensureRoleColumn = async () => {
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'`);
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS casdoor_roles TEXT`);
   await query(`ALTER TABLE users ALTER COLUMN username TYPE VARCHAR(255)`);
+  await query(`ALTER TABLE users ALTER COLUMN password DROP NOT NULL`).catch(() => {});
+  await query(`ALTER TABLE users DROP COLUMN IF EXISTS password`);
 };
 
 const saveCasdoorFields = (userData) => ([
@@ -45,13 +47,13 @@ export const UserModel = {
     return result.rows;
   },
 
-  createLocalUser: async ({ username, password, email, display_name, role }) => {
+  createLocalUser: async ({ username, email, display_name, role }) => {
     await ensureRoleColumn();
     const result = await query(
-      `INSERT INTO users (username, password, email, display_name, provider, role)
-       VALUES ($1, $2, $3, $4, 'local', $5)
+      `INSERT INTO users (username, email, display_name, provider, role)
+       VALUES ($1, $2, $3, 'casdoor', $4)
        RETURNING id, username, email, display_name, role`,
-      [username, password, email || null, display_name || username, role || 'associate']
+      [username, email || null, display_name || username, role || 'associate']
     );
     return result.rows[0];
   },
@@ -106,9 +108,4 @@ export const UserModel = {
     return result.rows[0];
   },
 
-  updatePassword: async (id, newHashedPassword) => {
-    const sql = 'UPDATE users SET password = $1 WHERE id = $2';
-    await query(sql, [newHashedPassword, id]);
-    return true;
-  }
 };
