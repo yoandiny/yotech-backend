@@ -173,6 +173,9 @@ export async function setupTestDb() {
       company_email VARCHAR(100),
       company_phone VARCHAR(20),
       tax_rate DECIMAL(5, 2) DEFAULT 20.00,
+      company_legal_form VARCHAR(50),
+      company_capital VARCHAR(100),
+      company_share_count INTEGER,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )

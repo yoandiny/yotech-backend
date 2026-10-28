@@ -112,6 +112,28 @@ export const initDb = async () => {
     `);
 
     await query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'
+    `);
+
+    await query(`
+      UPDATE users SET role = 'admin' WHERE role IS NULL OR role = ''
+    `);
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS company_associates (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255),
+        shares DECIMAL(15, 4) NOT NULL DEFAULT 0,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await query(`
       DO $$ BEGIN
           CREATE TYPE priority_enum AS ENUM ('LOW', 'MEDIUM', 'HIGH');
       EXCEPTION
@@ -252,6 +274,9 @@ export const initDb = async () => {
         company_email VARCHAR(100),
         company_phone VARCHAR(20),
         tax_rate DECIMAL(5, 2) DEFAULT 20.00,
+        company_legal_form VARCHAR(50),
+        company_capital VARCHAR(100),
+        company_share_count INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -261,6 +286,9 @@ export const initDb = async () => {
       ALTER TABLE settings
       ADD COLUMN IF NOT EXISTS company_rcs VARCHAR(100)
     `);
+    await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_legal_form VARCHAR(50)`);
+    await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_capital VARCHAR(100)`);
+    await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_share_count INTEGER`);
 
     await query(`
       INSERT INTO settings (company_name, company_address, company_nif, company_stat, company_email, company_phone, tax_rate)

@@ -408,14 +408,21 @@ export const FinanceModel = {
     return [...transactions, ...quotes].sort((a, b) => new Date(b.date_transaction) - new Date(a.date_transaction));
   },
 
-  getSettings: async () => {
+  ensureSettingsColumns: async () => {
     await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_rcs VARCHAR(100)`);
+    await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_legal_form VARCHAR(50)`);
+    await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_capital VARCHAR(100)`);
+    await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_share_count INTEGER`);
+  },
+
+  getSettings: async () => {
+    await FinanceModel.ensureSettingsColumns();
     const result = await query('SELECT * FROM settings LIMIT 1');
     return result.rows[0];
   },
 
   updateSettings: async (data) => {
-    await query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_rcs VARCHAR(100)`);
+    await FinanceModel.ensureSettingsColumns();
 
     const { 
       company_name, 
@@ -425,7 +432,10 @@ export const FinanceModel = {
       company_rcs,
       company_email, 
       company_phone, 
-      tax_rate 
+      tax_rate,
+      company_legal_form,
+      company_capital,
+      company_share_count
     } = data;
     
     const sql = `
@@ -438,13 +448,21 @@ export const FinanceModel = {
         company_email = $6,
         company_phone = $7,
         tax_rate = $8,
+        company_legal_form = $9,
+        company_capital = $10,
+        company_share_count = $11,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = (SELECT id FROM settings LIMIT 1)
       RETURNING *
     `;
+    const shareCount = company_share_count === '' || company_share_count == null
+      ? null
+      : Number(company_share_count);
     const result = await query(sql, [
       company_name, company_address, company_nif, company_stat, company_rcs || null,
-      company_email, company_phone, tax_rate
+      company_email, company_phone, tax_rate,
+      company_legal_form || null, company_capital || null,
+      Number.isFinite(shareCount) ? shareCount : null
     ]);
     return result.rows[0];
   },

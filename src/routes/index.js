@@ -8,8 +8,13 @@ import sharesRoutes from './sharesRoutes.js';
 import clientRoutes from './clientRoutes.js';
 import contractRoutes from './contractRoutes.js';
 import assemblyRoutes from './assemblyRoutes.js';
+import associateRoutes from './associateRoutes.js';
+import { attachActor, restrictAssociateWrites } from '../middleware/actor.js';
 
 const router = express.Router();
+
+router.use(attachActor);
+router.use(restrictAssociateWrites);
 
 router.use('/finances', financeRoutes);
 router.use('/auth', authRoutes);
@@ -20,5 +25,6 @@ router.use('/shares', sharesRoutes);
 router.use('/clients', clientRoutes);
 router.use('/contracts', contractRoutes);
 router.use('/assemblies', assemblyRoutes);
+router.use('/associates', associateRoutes);
 
 export default router;

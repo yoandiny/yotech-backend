@@ -32,6 +32,7 @@ export const casdoorCallback = async (req, res) => {
       displayName: casdoorUser.displayName,
       avatar: casdoorUser.avatarUrl,
       provider: 'casdoor',
+      role: dbUser?.role || 'admin',
     };
 
     res.json({
@@ -53,7 +54,7 @@ export const login = async (req, res) => {
   try {
     const user = await UserModel.findByUsername(username);
 
-    if (!user) {
+    if (!user || !user.password) {
       return res.status(401).json({ error: 'Utilisateur non trouvé' });
     }
 
@@ -62,9 +63,16 @@ export const login = async (req, res) => {
       return res.status(401).json({ error: 'Mot de passe incorrect' });
     }
 
-    res.json({ 
-      message: 'Connexion réussie', 
-      user: { id: user.id, username: user.username }
+    res.json({
+      message: 'Connexion réussie',
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        displayName: user.display_name || user.username,
+        role: user.role || 'admin',
+        provider: user.provider || 'local'
+      }
     });
   } catch (error) {
     console.error('Login error:', error);

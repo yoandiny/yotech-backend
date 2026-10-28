@@ -1,7 +1,12 @@
 import { query } from '../config/db.js';
 
+const ensureRoleColumn = async () => {
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'`);
+};
+
 export const UserModel = {
   findByUsername: async (username) => {
+    await ensureRoleColumn();
     const sql = 'SELECT * FROM users WHERE username = $1';
     const result = await query(sql, [username]);
     return result.rows[0];
@@ -14,8 +19,28 @@ export const UserModel = {
   },
   
   findById: async (id) => {
+    await ensureRoleColumn();
     const sql = 'SELECT * FROM users WHERE id = $1';
     const result = await query(sql, [id]);
+    return result.rows[0];
+  },
+
+  listDirectory: async () => {
+    await ensureRoleColumn();
+    const result = await query(
+      `SELECT id, username, display_name, email, role FROM users ORDER BY username ASC`
+    );
+    return result.rows;
+  },
+
+  createLocalUser: async ({ username, password, email, display_name, role }) => {
+    await ensureRoleColumn();
+    const result = await query(
+      `INSERT INTO users (username, password, email, display_name, provider, role)
+       VALUES ($1, $2, $3, $4, 'local', $5)
+       RETURNING id, username, email, display_name, role`,
+      [username, password, email || null, display_name || username, role || 'associate']
+    );
     return result.rows[0];
   },
 
