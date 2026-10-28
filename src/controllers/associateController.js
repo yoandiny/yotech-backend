@@ -1,7 +1,7 @@
 import { AssociateModel } from '../models/associateModel.js';
 import { UserModel } from '../models/userModel.js';
 import { FinanceModel } from '../models/financeModel.js';
-import { createCasdoorAssociateUser, listCasdoorUsers } from '../services/casdoorService.js';
+import { createCasdoorAssociateUser } from '../services/casdoorService.js';
 
 const parseRoles = (value) => {
   if (Array.isArray(value)) return value;
@@ -71,19 +71,6 @@ export const AssociateController = {
 
   getAccounts: async (_req, res) => {
     try {
-      try {
-        const casdoorUsers = await listCasdoorUsers();
-        for (const user of casdoorUsers) {
-          try {
-            await UserModel.upsertCasdoorUser(user);
-          } catch (userError) {
-            console.warn(`Casdoor user ${user.username} sync skipped:`, userError.message);
-          }
-        }
-      } catch (syncError) {
-        console.warn('Casdoor user directory sync skipped:', syncError.message);
-      }
-
       const users = await UserModel.listDirectory();
       const associates = await AssociateModel.getAll();
       const linked = new Set(associates.map((item) => item.user_id).filter(Boolean));

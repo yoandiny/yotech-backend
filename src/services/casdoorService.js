@@ -53,13 +53,6 @@ const unwrapCasdoorUser = (payload) => {
   return payload.data || payload;
 };
 
-const extractUserList = (payload) => {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.data)) return payload.data;
-  if (Array.isArray(payload?.data?.data)) return payload.data.data;
-  return [];
-};
-
 export const exchangeCodeForToken = async (code) => {
   const { url, clientId, clientSecret, redirectUri } = getCasdoorConfig();
 
@@ -151,44 +144,6 @@ export const mapCasdoorAccountToUser = (account, accessToken) => {
 };
 
 export const mapAccessTokenRoles = (account, accessToken) => resolveCasdoorAccess(account, accessToken);
-
-export const listCasdoorUsers = async () => {
-  const { organization } = getCasdoorConfig();
-  let users = [];
-  try {
-    const payload = await casdoorAdminRequest(
-      `/api/get-users?owner=${encodeURIComponent(organization)}&p=1&pageSize=1000`
-    );
-    users = extractUserList(payload);
-  } catch {
-    users = [];
-  }
-
-  if (users.length === 0) {
-    try {
-      const payload = await casdoorAdminRequest('/api/get-global-users?p=1&pageSize=1000');
-      users = extractUserList(payload).filter((user) => !user.owner || user.owner === organization);
-    } catch {
-      users = [];
-    }
-  }
-
-  return users
-    .filter((user) => user?.name || user?.id)
-    .map((user) => {
-      const access = resolveCasdoorAccess(user);
-      return {
-        casdoorUserId: user.id || `${user.owner || organization}/${user.name}`,
-        username: user.name,
-        email: user.email || null,
-        displayName: user.displayName || user.name,
-        avatarUrl: user.avatar || null,
-        provider: 'casdoor',
-        role: access.appRole,
-        casdoorRoles: access.roleNames
-      };
-    });
-};
 
 const getCasdoorRole = async (owner, name) => {
   const payload = await casdoorAdminRequest(`/api/get-role?id=${encodeURIComponent(`${owner}/${name}`)}`);
