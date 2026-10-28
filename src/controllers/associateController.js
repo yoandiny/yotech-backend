@@ -1,14 +1,26 @@
-import bcrypt from 'bcryptjs';
 import { AssociateModel } from '../models/associateModel.js';
 import { UserModel } from '../models/userModel.js';
 import { FinanceModel } from '../models/financeModel.js';
+import { createCasdoorAssociateUser, listCasdoorUsers } from '../services/casdoorService.js';
+
+const parseRoles = (value) => {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
 
 const publicUser = (user) => ({
   id: user.id,
   username: user.username,
   display_name: user.display_name,
   email: user.email,
-  role: user.role || 'admin'
+  role: user.role || 'admin',
+  roles: parseRoles(user.casdoor_roles || user.casdoorRoles)
 });
 
 const totalCapital = (associates, settings) => {
@@ -59,6 +71,19 @@ export const AssociateController = {
 
   getAccounts: async (_req, res) => {
     try {
+      try {
+        const casdoorUsers = await listCasdoorUsers();
+        for (const user of casdoorUsers) {
+          try {
+            await UserModel.upsertCasdoorUser(user);
+          } catch (userError) {
+            console.warn(`Casdoor user ${user.username} sync skipped:`, userError.message);
+          }
+        }
+      } catch (syncError) {
+        console.warn('Casdoor user directory sync skipped:', syncError.message);
+      }
+
       const users = await UserModel.listDirectory();
       const associates = await AssociateModel.getAll();
       const linked = new Set(associates.map((item) => item.user_id).filter(Boolean));
@@ -74,8 +99,9 @@ export const AssociateController = {
 
   create: async (req, res) => {
     try {
-      const { name, email, shares, user_id, new_user, approvals } = req.body;
-      if (!name?.trim()) return res.status(400).json({ error: 'Le nom de l’associé est obligatoire.' });
+      const { shares, user_id, new_user, approvals } = req.body;
+      let name = req.body.name;
+      let email = req.body.email;
 
       const associates = await AssociateModel.getAll();
       const settings = await FinanceModel.getSettings();
@@ -88,22 +114,36 @@ export const AssociateController = {
       }
 
       let userId = user_id || null;
+      if (userId && !new_user?.username) {
+        const account = await UserModel.findById(userId);
+        if (!account) return res.status(400).json({ error: 'Compte introuvable.' });
+        name = account.display_name || account.username;
+        email = account.email || null;
+      }
       if (new_user?.username) {
         if (!new_user.password || String(new_user.password).length < 6) {
-          return res.status(400).json({ error: 'Le mot de passe du compte associé doit contenir au moins 6 caractères.' });
+          return res.status(400).json({ error: 'Le mot de passe du compte Casdoor doit contenir au moins 6 caractères.' });
         }
-        const existing = await UserModel.findByUsername(new_user.username);
-        if (existing) return res.status(400).json({ error: 'Ce nom d’utilisateur est déjà pris.' });
-        const hashed = await bcrypt.hash(new_user.password, 10);
-        const created = await UserModel.createLocalUser({
-          username: new_user.username.trim(),
-          password: hashed,
-          email: email || new_user.email || null,
-          display_name: name.trim(),
-          role: 'associate'
-        });
+        let casdoorUser;
+        try {
+          casdoorUser = await createCasdoorAssociateUser({
+            username: new_user.username,
+            password: new_user.password,
+            email: email || new_user.email || null,
+            displayName: name.trim()
+          });
+        } catch (casdoorError) {
+          return res.status(400).json({
+            error: casdoorError.message || 'Impossible de créer le compte dans Casdoor. Vérifiez le rôle « associe ».'
+          });
+        }
+        const created = await UserModel.upsertCasdoorUser(casdoorUser);
         userId = created.id;
+        name = casdoorUser.displayName || new_user.username;
+        email = casdoorUser.email || email || null;
       }
+
+      if (!name?.trim()) return res.status(400).json({ error: 'Le nom de l’associé est obligatoire.' });
 
       if (userId) {
         const already = await AssociateModel.findByUserId(userId);

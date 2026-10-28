@@ -121,6 +121,11 @@ export const initDb = async () => {
     `);
 
     await query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS casdoor_roles TEXT
+    `);
+
+    await query(`
       CREATE TABLE IF NOT EXISTS company_associates (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,

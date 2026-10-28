@@ -16,13 +16,15 @@ export const casdoorCallback = async (req, res) => {
   try {
     const tokenData = await exchangeCodeForToken(code);
     const account = await getCasdoorAccount(tokenData.access_token);
-    const casdoorUser = mapCasdoorAccountToUser(account);
+    const casdoorUser = mapCasdoorAccountToUser(account, tokenData.access_token);
 
     let dbUser = null;
     try {
       dbUser = await UserModel.upsertCasdoorUser(casdoorUser);
     } catch (dbError) {
-      console.warn('Casdoor user sync skipped:', dbError.message);
+      console.warn('Casdoor user sync retry:', dbError.message);
+      dbUser = await UserModel.findByUsername(casdoorUser.username);
+      if (!dbUser) throw dbError;
     }
 
     const user = {
@@ -32,7 +34,8 @@ export const casdoorCallback = async (req, res) => {
       displayName: casdoorUser.displayName,
       avatar: casdoorUser.avatarUrl,
       provider: 'casdoor',
-      role: dbUser?.role || 'admin',
+      role: casdoorUser.role || dbUser?.role || 'admin',
+      roles: casdoorUser.casdoorRoles || [],
     };
 
     res.json({
