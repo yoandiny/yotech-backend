@@ -145,6 +145,17 @@ export const initDb = async () => {
     `);
 
     await query(`
+      CREATE TABLE IF NOT EXISTS associate_votes (
+        id SERIAL PRIMARY KEY,
+        associate_id INTEGER NOT NULL REFERENCES company_associates(id) ON DELETE CASCADE,
+        voter_id INTEGER NOT NULL REFERENCES company_associates(id) ON DELETE CASCADE,
+        decision VARCHAR(10) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (associate_id, voter_id)
+      )
+    `);
+
+    await query(`
       DO $$ BEGIN
           CREATE TYPE priority_enum AS ENUM ('LOW', 'MEDIUM', 'HIGH');
       EXCEPTION

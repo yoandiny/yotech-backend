@@ -6,6 +6,7 @@ const router = express.Router();
 router.get('/', AssociateController.getAll);
 router.get('/accounts', AssociateController.getAccounts);
 router.post('/', AssociateController.create);
+router.post('/:id/vote', AssociateController.vote);
 router.put('/:id', AssociateController.update);
 router.delete('/:id', AssociateController.remove);
 

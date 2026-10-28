@@ -4,6 +4,7 @@ import { appRoleFromCasdoor, collectCasdoorRoleNames, decodeJwtPayload } from '.
 const ASSOCIATE_ALLOWED = [
   { method: 'GET', pattern: /^\/assemblies(\/|$)/ },
   { method: 'GET', pattern: /^\/associates\/?$/ },
+  { method: 'POST', pattern: /^\/associates\/\d+\/vote$/ },
   { method: 'GET', pattern: /^\/finances\/settings$/ },
   { method: 'GET', pattern: /^\/auth\// }
 ];

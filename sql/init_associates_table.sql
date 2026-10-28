@@ -16,4 +16,13 @@ CREATE TABLE IF NOT EXISTS company_associates (
 
 CREATE UNIQUE INDEX IF NOT EXISTS company_associates_user_id_unique
   ON company_associates (user_id)
-  WHERE user_id IS NOT NULL AND status = 'active';
+  WHERE user_id IS NOT NULL AND status IN ('active', 'pending');
+
+CREATE TABLE IF NOT EXISTS associate_votes (
+  id SERIAL PRIMARY KEY,
+  associate_id INTEGER NOT NULL REFERENCES company_associates(id) ON DELETE CASCADE,
+  voter_id INTEGER NOT NULL REFERENCES company_associates(id) ON DELETE CASCADE,
+  decision VARCHAR(10) NOT NULL CHECK (decision IN ('for', 'against')),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (associate_id, voter_id)
+);

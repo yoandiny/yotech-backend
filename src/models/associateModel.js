@@ -21,6 +21,17 @@ export const ensureAssociatesTable = async () => {
     )
   `);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS associate_votes (
+      id SERIAL PRIMARY KEY,
+      associate_id INTEGER NOT NULL REFERENCES company_associates(id) ON DELETE CASCADE,
+      voter_id INTEGER NOT NULL REFERENCES company_associates(id) ON DELETE CASCADE,
+      decision VARCHAR(10) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (associate_id, voter_id)
+    )
+  `);
+
   associatesReady = true;
 };
 
@@ -37,15 +48,16 @@ const mapRow = (row) => {
 };
 
 export const AssociateModel = {
-  getAll: async () => {
+  getAll: async ({ statuses } = {}) => {
     await ensureAssociatesTable();
+    const allowed = statuses?.length ? statuses : ['active', 'pending'];
     const result = await query(`
       SELECT a.*, u.username, u.display_name, u.email AS user_email, u.role AS user_role
       FROM company_associates a
       LEFT JOIN users u ON u.id = a.user_id
-      WHERE a.status = 'active'
-      ORDER BY a.name ASC
-    `);
+      WHERE a.status = ANY($1)
+      ORDER BY CASE a.status WHEN 'pending' THEN 0 ELSE 1 END, a.name ASC
+    `, [allowed]);
     return result.rows.map(mapRow);
   },
 
@@ -60,22 +72,23 @@ export const AssociateModel = {
     return mapRow(result.rows[0]);
   },
 
-  findByUserId: async (userId) => {
+  findByUserId: async (userId, { statuses } = {}) => {
     await ensureAssociatesTable();
+    const allowed = statuses?.length ? statuses : ['active', 'pending'];
     const result = await query(
-      `SELECT * FROM company_associates WHERE user_id = $1 AND status = 'active' LIMIT 1`,
-      [userId]
+      `SELECT * FROM company_associates WHERE user_id = $1 AND status = ANY($2) LIMIT 1`,
+      [userId, allowed]
     );
     return mapRow(result.rows[0]);
   },
 
-  create: async ({ user_id, name, email, shares }) => {
+  create: async ({ user_id, name, email, shares, status }) => {
     await ensureAssociatesTable();
     const result = await query(
       `INSERT INTO company_associates (user_id, name, email, shares, status)
-       VALUES ($1, $2, $3, $4, 'active')
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [user_id || null, name.trim(), email || null, Number(shares) || 0]
+      [user_id || null, name.trim(), email || null, Number(shares) || 0, status || 'pending']
     );
     return AssociateModel.getById(result.rows[0].id);
   },
@@ -110,9 +123,34 @@ export const AssociateModel = {
     await ensureAssociatesTable();
     const result = await query(
       `UPDATE company_associates SET status = 'inactive', updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND status = 'active' RETURNING *`,
+       WHERE id = $1 AND status IN ('active', 'pending') RETURNING *`,
       [id]
     );
     return result.rows[0] || null;
+  },
+
+  listVotes: async (associateId) => {
+    await ensureAssociatesTable();
+    const result = await query(
+      `SELECT v.*, a.name AS voter_name, a.shares AS voter_shares
+       FROM associate_votes v
+       JOIN company_associates a ON a.id = v.voter_id
+       WHERE v.associate_id = $1`,
+      [associateId]
+    );
+    return result.rows.map((row) => ({ ...row, voter_shares: Number(row.voter_shares) || 0 }));
+  },
+
+  upsertVote: async ({ associateId, voterId, decision }) => {
+    await ensureAssociatesTable();
+    const result = await query(
+      `INSERT INTO associate_votes (associate_id, voter_id, decision)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (associate_id, voter_id)
+       DO UPDATE SET decision = EXCLUDED.decision
+       RETURNING *`,
+      [associateId, voterId, decision]
+    );
+    return result.rows[0];
   }
 };

@@ -51,16 +51,51 @@ export const evaluateApprovals = (associates, approvalIds = [], settings) => {
   };
 };
 
+const withVoteSummary = async (associate, activeAssociates, settings) => {
+  if (associate.status !== 'pending') {
+    return { ...associate, vote: null };
+  }
+  const votes = await AssociateModel.listVotes(associate.id);
+  const forIds = votes.filter((vote) => vote.decision === 'for').map((vote) => vote.voter_id);
+  return {
+    ...associate,
+    vote: {
+      ...evaluateApprovals(activeAssociates, forIds, settings),
+      ballots: votes.map((vote) => ({
+        voter_id: vote.voter_id,
+        voter_name: vote.voter_name,
+        decision: vote.decision
+      }))
+    }
+  };
+};
+
+const currentAssociate = async (req) => {
+  const userId = req.actor?.id;
+  if (userId) {
+    const byUser = await AssociateModel.findByUserId(userId, { statuses: ['active'] });
+    if (byUser) return byUser;
+  }
+  const username = req.actor?.username;
+  if (!username) return null;
+  const active = await AssociateModel.getAll({ statuses: ['active'] });
+  return active.find((item) => item.username === username) || null;
+};
+
 export const AssociateController = {
-  getAll: async (_req, res) => {
+  getAll: async (req, res) => {
     try {
-      const associates = await AssociateModel.getAll();
+      const associates = await AssociateModel.getAll({ statuses: ['active', 'pending'] });
+      const active = associates.filter((item) => item.status === 'active');
       const settings = await FinanceModel.getSettings();
+      const me = await currentAssociate(req);
+      const listed = await Promise.all(associates.map((item) => withVoteSummary(item, active, settings)));
       res.json({
-        associates,
+        associates: listed,
+        me: me ? { associate_id: me.id, name: me.name } : null,
         capital: {
           statutory: Number(settings?.company_share_count) || 0,
-          held: associates.reduce((sum, item) => sum + (Number(item.shares) || 0), 0)
+          held: active.reduce((sum, item) => sum + (Number(item.shares) || 0), 0)
         }
       });
     } catch (error) {
@@ -72,7 +107,7 @@ export const AssociateController = {
   getAccounts: async (_req, res) => {
     try {
       const users = await UserModel.listDirectory();
-      const associates = await AssociateModel.getAll();
+      const associates = await AssociateModel.getAll({ statuses: ['active', 'pending'] });
       const linked = new Set(associates.map((item) => item.user_id).filter(Boolean));
       res.json({
         users: users.map(publicUser),
@@ -86,19 +121,9 @@ export const AssociateController = {
 
   create: async (req, res) => {
     try {
-      const { shares, user_id, new_user, approvals } = req.body;
+      const { shares, user_id, new_user } = req.body;
       let name = req.body.name;
       let email = req.body.email;
-
-      const associates = await AssociateModel.getAll();
-      const settings = await FinanceModel.getSettings();
-      const vote = evaluateApprovals(associates, approvals || [], settings);
-      if (!vote.ok) {
-        return res.status(400).json({
-          error: 'L’admission d’un associé requiert l’accord unanime ou la majorité des associés représentant les 3/4 du capital social.',
-          vote
-        });
-      }
 
       let userId = user_id || null;
       if (userId && !new_user?.username) {
@@ -117,7 +142,7 @@ export const AssociateController = {
             username: new_user.username,
             password: new_user.password,
             email: email || new_user.email || null,
-            displayName: name.trim()
+            displayName: (name || '').trim() || new_user.username
           });
         } catch (casdoorError) {
           return res.status(400).json({
@@ -133,19 +158,57 @@ export const AssociateController = {
       if (!name?.trim()) return res.status(400).json({ error: 'Le nom de l’associé est obligatoire.' });
 
       if (userId) {
-        const already = await AssociateModel.findByUserId(userId);
+        const already = await AssociateModel.findByUserId(userId, { statuses: ['active', 'pending'] });
         if (already) return res.status(400).json({ error: 'Ce compte est déjà lié à un associé.' });
       }
 
+      const active = await AssociateModel.getAll({ statuses: ['active'] });
       const associate = await AssociateModel.create({
         user_id: userId,
         name: name.trim(),
         email: email || null,
-        shares
+        shares,
+        status: active.length === 0 ? 'active' : 'pending'
       });
       res.status(201).json(associate);
     } catch (error) {
       console.error('Error creating associate:', error);
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  },
+
+  vote: async (req, res) => {
+    try {
+      const decision = req.body?.decision === 'against' ? 'against' : 'for';
+      const target = await AssociateModel.getById(req.params.id);
+      if (!target || target.status !== 'pending') {
+        return res.status(404).json({ error: 'Candidature introuvable.' });
+      }
+
+      const voter = await currentAssociate(req);
+      if (!voter) {
+        return res.status(403).json({ error: 'Seul un associé déjà validé peut voter.' });
+      }
+      if (Number(voter.id) === Number(target.id)) {
+        return res.status(400).json({ error: 'Un candidat ne vote pas sur sa propre admission.' });
+      }
+
+      await AssociateModel.upsertVote({ associateId: target.id, voterId: voter.id, decision });
+
+      const active = await AssociateModel.getAll({ statuses: ['active'] });
+      const settings = await FinanceModel.getSettings();
+      const votes = await AssociateModel.listVotes(target.id);
+      const forIds = votes.filter((vote) => vote.decision === 'for').map((vote) => vote.voter_id);
+      const result = evaluateApprovals(active, forIds, settings);
+
+      if (result.ok) {
+        await AssociateModel.update(target.id, { status: 'active' });
+      }
+
+      const updated = await AssociateModel.getById(target.id);
+      res.json(await withVoteSummary(updated, active, settings));
+    } catch (error) {
+      console.error('Error voting associate:', error);
       res.status(500).json({ error: 'Internal Server Error' });
     }
   },
@@ -156,21 +219,10 @@ export const AssociateController = {
       if (!current || current.status === 'inactive') {
         return res.status(404).json({ error: 'Associé introuvable' });
       }
-
-      const sharesChanged = req.body.shares !== undefined && Number(req.body.shares) !== Number(current.shares);
-      if (sharesChanged) {
-        const associates = await AssociateModel.getAll();
-        const settings = await FinanceModel.getSettings();
-        const vote = evaluateApprovals(associates, req.body.approvals || [], settings);
-        if (!vote.ok) {
-          return res.status(400).json({
-            error: 'La modification des parts requiert l’accord unanime ou la majorité représentant les 3/4 du capital.',
-            vote
-          });
-        }
-      }
-
-      const updated = await AssociateModel.update(req.params.id, req.body);
+      const updated = await AssociateModel.update(req.params.id, {
+        name: req.body.name,
+        email: req.body.email
+      });
       res.json(updated);
     } catch (error) {
       console.error('Error updating associate:', error);
@@ -180,20 +232,15 @@ export const AssociateController = {
 
   remove: async (req, res) => {
     try {
-      const associates = (await AssociateModel.getAll()).filter(
-        (item) => Number(item.id) !== Number(req.params.id)
-      );
-      const settings = await FinanceModel.getSettings();
-      const vote = evaluateApprovals(associates, req.body?.approvals || [], settings);
-      if (!vote.ok) {
-        return res.status(400).json({
-          error: 'Le retrait d’un associé requiert l’accord unanime ou la majorité représentant les 3/4 du capital.',
-          vote
-        });
+      const current = await AssociateModel.getById(req.params.id);
+      if (!current || current.status === 'inactive') {
+        return res.status(404).json({ error: 'Associé introuvable' });
+      }
+      if (current.status !== 'pending') {
+        return res.status(400).json({ error: 'Seul un associé en attente peut être retiré sans vote.' });
       }
       const removed = await AssociateModel.remove(req.params.id);
-      if (!removed) return res.status(404).json({ error: 'Associé introuvable' });
-      res.json({ success: true });
+      res.json({ success: Boolean(removed) });
     } catch (error) {
       console.error('Error removing associate:', error);
       res.status(500).json({ error: 'Internal Server Error' });
