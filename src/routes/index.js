@@ -7,6 +7,7 @@ import missionRoutes from './missionRoutes.js';
 import sharesRoutes from './sharesRoutes.js';
 import clientRoutes from './clientRoutes.js';
 import contractRoutes from './contractRoutes.js';
+import assemblyRoutes from './assemblyRoutes.js';
 
 const router = express.Router();
 
@@ -18,5 +19,6 @@ router.use('/missions', missionRoutes);
 router.use('/shares', sharesRoutes);
 router.use('/clients', clientRoutes);
 router.use('/contracts', contractRoutes);
+router.use('/assemblies', assemblyRoutes);
 
 export default router;
