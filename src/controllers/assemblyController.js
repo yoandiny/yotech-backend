@@ -1,5 +1,7 @@
 import { AssemblyModel } from '../models/assemblyModel.js';
 import { FinanceModel } from '../models/financeModel.js';
+import { AssociateModel } from '../models/associateModel.js';
+import { applyLegalNamesToAssembly, hydratePeople, listManagers } from '../services/peopleNames.js';
 
 export const AssemblyController = {
   getAll: async (req, res) => {
@@ -37,7 +39,16 @@ export const AssemblyController = {
       const assembly = await AssemblyModel.getById(req.params.id);
       if (!assembly) return res.status(404).json({ error: 'Assemblée introuvable' });
       const settings = await FinanceModel.getSettings();
-      res.json({ assembly, settings });
+      const people = await hydratePeople(await AssociateModel.getAll({ statuses: ['active'] }));
+      const managers = await listManagers(people);
+      const hydrated = applyLegalNamesToAssembly(assembly.answers || {}, people, managers);
+      res.json({
+        assembly: { ...assembly, answers: hydrated.answers },
+        settings: {
+          ...settings,
+          company_manager: hydrated.company_manager
+        }
+      });
     } catch (error) {
       console.error('Error fetching assembly PDF data:', error);
       res.status(500).json({ error: 'Internal Server Error' });

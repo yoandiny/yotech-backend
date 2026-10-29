@@ -1,4 +1,5 @@
 import { resolveCasdoorAccess } from './casdoorRoles.js';
+import { namesFromAccount } from '../utils/legalName.js';
 
 const getCasdoorConfig = () => {
   const url = process.env.CASDOOR_URL?.replace(/\/$/, '');
@@ -117,10 +118,22 @@ export const getCasdoorAccount = async (accessToken) => {
   return userinfo;
 };
 
+export const getCasdoorUser = async ({ username, casdoorUserId } = {}) => {
+  const { organization } = getCasdoorConfig();
+  const id = casdoorUserId && String(casdoorUserId).includes('/')
+    ? casdoorUserId
+    : (username ? `${organization}/${username}` : null);
+  if (!id) return null;
+  const payload = await casdoorAdminRequest(`/api/get-user?id=${encodeURIComponent(id)}`);
+  return payload?.data || null;
+};
+
 export const mapCasdoorAccountToUser = (account, accessToken) => {
   const casdoorUserId = account.id || account.sub || account.name;
   const username = account.name || account.preferred_username || account.username || casdoorUserId;
+  const names = namesFromAccount(account);
   const displayName =
+    names.name ||
     account.displayName ||
     account.display_name ||
     account.preferredUsername ||
@@ -135,6 +148,8 @@ export const mapCasdoorAccountToUser = (account, accessToken) => {
     username,
     email,
     displayName,
+    givenNames: names.given_names,
+    familyName: names.family_name,
     avatarUrl: avatar,
     provider: 'casdoor',
     role: access.appRole,
@@ -206,11 +221,14 @@ export const createCasdoorAssociateUser = async ({ username, password, email, di
     `/api/get-user?id=${encodeURIComponent(`${organization}/${name}`)}`
   );
   const user = created?.data || {};
+  const names = namesFromAccount({ ...user, displayName: user.displayName || displayName || name });
   return {
     casdoorUserId: user.id || `${organization}/${name}`,
     username: name,
     email: user.email || email || null,
-    displayName: user.displayName || displayName || name,
+    displayName: names.name || user.displayName || displayName || name,
+    givenNames: names.given_names,
+    familyName: names.family_name,
     avatarUrl: user.avatar || null,
     provider: 'casdoor',
     role: 'associate',

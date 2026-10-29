@@ -1,4 +1,5 @@
 import { query } from '../config/db.js';
+import { formatLegalName } from '../utils/legalName.js';
 
 let associatesReady = false;
 
@@ -6,6 +7,8 @@ export const ensureAssociatesTable = async () => {
   if (associatesReady) return;
 
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS given_names VARCHAR(255)`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS family_name VARCHAR(255)`);
   await query(`UPDATE users SET role = 'admin' WHERE role IS NULL OR role = ''`);
 
   await query(`
@@ -37,13 +40,26 @@ export const ensureAssociatesTable = async () => {
 
 const mapRow = (row) => {
   if (!row) return null;
+  const given_names = row.user_given_names || row.given_names || null;
+  const family_name = row.user_family_name || row.family_name || null;
+  const legal_name = formatLegalName({
+    given_names,
+    family_name,
+    name: row.display_name || row.name
+  });
   return {
     ...row,
     shares: Number(row.shares) || 0,
     username: row.username || null,
     display_name: row.display_name || null,
+    given_names,
+    family_name,
+    legal_name,
+    name: legal_name || row.name,
     user_email: row.user_email || null,
-    user_role: row.user_role || null
+    user_role: row.user_role || null,
+    casdoor_user_id: row.casdoor_user_id || null,
+    casdoor_roles: row.casdoor_roles || null
   };
 };
 
@@ -52,7 +68,8 @@ export const AssociateModel = {
     await ensureAssociatesTable();
     const allowed = statuses?.length ? statuses : ['active', 'pending'];
     const result = await query(`
-      SELECT a.*, u.username, u.display_name, u.email AS user_email, u.role AS user_role
+      SELECT a.*, u.username, u.display_name, u.given_names AS user_given_names, u.family_name AS user_family_name,
+             u.email AS user_email, u.role AS user_role, u.casdoor_user_id, u.casdoor_roles
       FROM company_associates a
       LEFT JOIN users u ON u.id = a.user_id
       WHERE a.status = ANY($1)
@@ -64,7 +81,8 @@ export const AssociateModel = {
   getById: async (id) => {
     await ensureAssociatesTable();
     const result = await query(`
-      SELECT a.*, u.username, u.display_name, u.email AS user_email, u.role AS user_role
+      SELECT a.*, u.username, u.display_name, u.given_names AS user_given_names, u.family_name AS user_family_name,
+             u.email AS user_email, u.role AS user_role, u.casdoor_user_id, u.casdoor_roles
       FROM company_associates a
       LEFT JOIN users u ON u.id = a.user_id
       WHERE a.id = $1

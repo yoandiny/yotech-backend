@@ -125,6 +125,16 @@ export const initDb = async () => {
     `);
 
     await query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS given_names VARCHAR(255)
+    `);
+
+    await query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS family_name VARCHAR(255)
+    `);
+
+    await query(`
       ALTER TABLE users ALTER COLUMN password DROP NOT NULL
     `).catch(() => {});
     await query(`

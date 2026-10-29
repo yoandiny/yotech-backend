@@ -2,6 +2,8 @@ import { AssociateModel } from '../models/associateModel.js';
 import { UserModel } from '../models/userModel.js';
 import { FinanceModel } from '../models/financeModel.js';
 import { createCasdoorAssociateUser } from '../services/casdoorService.js';
+import { hydratePeople, listManagers } from '../services/peopleNames.js';
+import { namesFromAccount } from '../utils/legalName.js';
 
 const parseRoles = (value) => {
   if (Array.isArray(value)) return value;
@@ -18,6 +20,9 @@ const publicUser = (user) => ({
   id: user.id,
   username: user.username,
   display_name: user.display_name,
+  given_names: user.given_names,
+  family_name: user.family_name,
+  legal_name: user.legal_name,
   email: user.email,
   role: user.role || 'admin',
   roles: parseRoles(user.casdoor_roles || user.casdoorRoles)
@@ -85,14 +90,20 @@ const currentAssociate = async (req) => {
 export const AssociateController = {
   getAll: async (req, res) => {
     try {
-      const associates = await AssociateModel.getAll({ statuses: ['active', 'pending'] });
+      const associates = await hydratePeople(await AssociateModel.getAll({ statuses: ['active', 'pending'] }));
       const active = associates.filter((item) => item.status === 'active');
       const settings = await FinanceModel.getSettings();
       const me = await currentAssociate(req);
       const listed = await Promise.all(associates.map((item) => withVoteSummary(item, active, settings)));
       res.json({
         associates: listed,
-        me: me ? { associate_id: me.id, name: me.name } : null,
+        managers: (await listManagers(active)).map((item) => ({
+          id: item.id,
+          name: item.legal_name || item.name,
+          given_names: item.given_names,
+          family_name: item.family_name
+        })),
+        me: me ? { associate_id: me.id, name: me.legal_name || me.name } : null,
         capital: {
           statutory: Number(settings?.company_share_count) || 0,
           held: active.reduce((sum, item) => sum + (Number(item.shares) || 0), 0)
@@ -106,7 +117,7 @@ export const AssociateController = {
 
   getAccounts: async (_req, res) => {
     try {
-      const users = await UserModel.listDirectory();
+      const users = await hydratePeople(await UserModel.listDirectory());
       const associates = await AssociateModel.getAll({ statuses: ['active', 'pending'] });
       const linked = new Set(associates.map((item) => item.user_id).filter(Boolean));
       res.json({
@@ -129,7 +140,8 @@ export const AssociateController = {
       if (userId && !new_user?.username) {
         const account = await UserModel.findById(userId);
         if (!account) return res.status(400).json({ error: 'Compte introuvable.' });
-        name = account.display_name || account.username;
+        const names = namesFromAccount(account);
+        name = names.name || account.display_name || account.username;
         email = account.email || null;
       }
       if (new_user?.username) {

@@ -1,22 +1,35 @@
 import { query } from '../config/db.js';
+import { namesFromAccount } from '../utils/legalName.js';
 
 const ensureRoleColumn = async () => {
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'`);
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS casdoor_roles TEXT`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS given_names VARCHAR(255)`);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS family_name VARCHAR(255)`);
   await query(`ALTER TABLE users ALTER COLUMN username TYPE VARCHAR(255)`);
   await query(`ALTER TABLE users ALTER COLUMN password DROP NOT NULL`).catch(() => {});
   await query(`ALTER TABLE users DROP COLUMN IF EXISTS password`);
 };
 
-const saveCasdoorFields = (userData) => ([
-  userData.email || null,
-  userData.provider || 'casdoor',
-  userData.casdoorUserId || null,
-  userData.displayName || userData.username || null,
-  userData.avatarUrl || null,
-  userData.role || 'admin',
-  Array.isArray(userData.casdoorRoles) ? JSON.stringify(userData.casdoorRoles) : (userData.casdoorRoles || null)
-]);
+const saveCasdoorFields = (userData) => {
+  const names = namesFromAccount({
+    firstName: userData.givenNames,
+    lastName: userData.familyName,
+    displayName: userData.displayName,
+    username: userData.username
+  });
+  return [
+    userData.email || null,
+    userData.provider || 'casdoor',
+    userData.casdoorUserId || null,
+    names.name || userData.displayName || userData.username || null,
+    userData.avatarUrl || null,
+    userData.role || 'admin',
+    Array.isArray(userData.casdoorRoles) ? JSON.stringify(userData.casdoorRoles) : (userData.casdoorRoles || null),
+    names.given_names || null,
+    names.family_name || null
+  ];
+};
 
 export const UserModel = {
   findByUsername: async (username) => {
@@ -42,7 +55,7 @@ export const UserModel = {
   listDirectory: async () => {
     await ensureRoleColumn();
     const result = await query(
-      `SELECT id, username, display_name, email, role, casdoor_roles, casdoor_user_id, provider FROM users ORDER BY username ASC`
+      `SELECT id, username, display_name, given_names, family_name, email, role, casdoor_roles, casdoor_user_id, provider FROM users ORDER BY username ASC`
     );
     return result.rows;
   },
@@ -84,8 +97,10 @@ export const UserModel = {
           display_name = $5,
           avatar_url = $6,
           role = COALESCE($7, users.role),
-          casdoor_roles = COALESCE($8, users.casdoor_roles)
-         WHERE id = $9
+          casdoor_roles = COALESCE($8, users.casdoor_roles),
+          given_names = COALESCE($9, users.given_names),
+          family_name = COALESCE($10, users.family_name)
+         WHERE id = $11
          RETURNING *`,
         [username, ...saveCasdoorFields({ ...userData, username, casdoorUserId }), existing.id]
       );
@@ -94,10 +109,24 @@ export const UserModel = {
 
     const result = await query(
       `INSERT INTO users (
-        username, email, provider, casdoor_user_id, display_name, avatar_url, role, casdoor_roles
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        username, email, provider, casdoor_user_id, display_name, avatar_url, role, casdoor_roles, given_names, family_name
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`,
       [username, ...saveCasdoorFields({ ...userData, username, casdoorUserId })]
+    );
+    return result.rows[0];
+  },
+
+  updateLegalName: async (id, { given_names, family_name, name } = {}) => {
+    await ensureRoleColumn();
+    const result = await query(
+      `UPDATE users SET
+        given_names = COALESCE($1, given_names),
+        family_name = COALESCE($2, family_name),
+        display_name = COALESCE($3, display_name)
+       WHERE id = $4
+       RETURNING *`,
+      [given_names || null, family_name || null, name || null, id]
     );
     return result.rows[0];
   },
