@@ -38,4 +38,8 @@ router.get('/reports/statements', AccountingController.statements);
 router.get('/reports/auxiliary', AccountingController.auxiliary);
 router.get('/reports/treasury', AccountingController.treasury);
 
+router.get('/posting-rules', AccountingController.listPostingRules);
+router.post('/posting-rules', AccountingController.upsertPostingRule);
+router.get('/pending-transactions', AccountingController.pendingTransactions);
+
 export default router;

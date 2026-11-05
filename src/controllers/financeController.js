@@ -1,5 +1,6 @@
 import { FinanceModel } from '../models/financeModel.js';
 import { MissionModel } from '../models/missionModel.js';
+import { handleFinanceDelete, postFinanceTransaction, syncFinanceAccounting } from '../services/transactionPosting.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -79,9 +80,17 @@ export const getIncomeByCategory = async (req, res) => {
 export const createTransaction = async (req, res) => {
   try {
     const transaction = await FinanceModel.addTransaction(req.body);
-    res.status(201).json(transaction);
+    if (transaction?.is_quote) {
+      return res.status(201).json(transaction);
+    }
+    const synced = await syncFinanceAccounting(
+      { ...transaction, cash_account_id: req.body.cash_account_id || transaction.cash_account_id },
+      { autoPost: req.body.auto_post !== false && req.body.auto_post !== 'false', actorId: req.actor?.id }
+    );
+    res.status(201).json(synced);
   } catch (error) {
     console.error('Error creating transaction:', error);
+    if (error.status) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };
@@ -104,7 +113,12 @@ export const updateTransaction = async (req, res) => {
     if (!transaction) {
       return res.status(404).json({ error: 'Transaction introuvable' });
     }
-    res.json(transaction);
+    if (transaction.is_quote) return res.json(transaction);
+    const synced = await syncFinanceAccounting(
+      { ...transaction, cash_account_id: req.body.cash_account_id || transaction.cash_account_id },
+      { autoPost: req.body.auto_post !== false && req.body.auto_post !== 'false', actorId: req.actor?.id }
+    );
+    res.json(synced);
   } catch (error) {
     console.error('Error updating transaction:', error);
     if (error.status) {
@@ -117,14 +131,33 @@ export const updateTransaction = async (req, res) => {
 export const deleteTransaction = async (req, res) => {
   try {
     const { id } = req.params;
-    const deleted = await FinanceModel.delete(id);
-    if (!deleted) {
+    const existing = await FinanceModel.getTransactionById(id);
+    if (!existing) {
       return res.status(404).json({ error: 'Transaction introuvable' });
     }
+    await handleFinanceDelete(existing, req.actor?.id);
+    const deleted = await FinanceModel.delete(id);
     res.json({ message: 'Transaction deleted successfully', deleted });
   } catch (error) {
     console.error('Error deleting transaction:', error);
+    if (error.status) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+export const postTransactionAccounting = async (req, res) => {
+  try {
+    const transaction = await FinanceModel.getTransactionById(req.params.id);
+    if (!transaction) return res.status(404).json({ error: 'Transaction introuvable' });
+    const posted = await postFinanceTransaction(
+      { ...transaction, cash_account_id: req.body?.cash_account_id || transaction.cash_account_id },
+      { actorId: req.actor?.id }
+    );
+    res.json(posted);
+  } catch (error) {
+    console.error('Error posting transaction accounting:', error);
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 };
 

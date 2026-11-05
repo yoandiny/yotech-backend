@@ -133,6 +133,33 @@ export const DEFAULT_JOURNALS = [
   { code: 'OD', name: 'Journal des opérations diverses', journal_type: 'miscellaneous' }
 ];
 
+/** Mapping configurable type/catégorie → code compte (jamais utilisé tel quel dans le moteur). */
+export const DEFAULT_POSTING_MAP = [
+  { transaction_type: 'revenu', category: null, account_code: '706' },
+  { transaction_type: 'revenu', category: 'Développement Web', account_code: '706' },
+  { transaction_type: 'revenu', category: 'Applications Web', account_code: '706' },
+  { transaction_type: 'revenu', category: 'API & Automatisation', account_code: '706' },
+  { transaction_type: 'revenu', category: 'Conseil Digital', account_code: '706' },
+  { transaction_type: 'revenu', category: 'Maintenance & Support', account_code: '706' },
+  { transaction_type: 'revenu', category: 'Formation', account_code: '705' },
+  { transaction_type: 'revenu', category: 'Hébergement', account_code: '706' },
+  { transaction_type: 'revenu', category: 'Autre', account_code: '75' },
+  { transaction_type: 'dépense', category: null, account_code: '604' },
+  { transaction_type: 'dépense', category: 'Salaires & RH', account_code: '661' },
+  { transaction_type: 'dépense', category: 'Loyer & Immobilier', account_code: '622' },
+  { transaction_type: 'dépense', category: 'Matériel & Équipement', account_code: '245' },
+  { transaction_type: 'dépense', category: 'Logiciels & Licences', account_code: '604' },
+  { transaction_type: 'dépense', category: 'Marketing & Publicité', account_code: '627' },
+  { transaction_type: 'dépense', category: 'Transport & Déplacement', account_code: '61' },
+  { transaction_type: 'dépense', category: 'Télécom & Internet', account_code: '628' },
+  { transaction_type: 'dépense', category: 'Fournitures & Consommables', account_code: '604' },
+  { transaction_type: 'dépense', category: 'Services Externes', account_code: '632' },
+  { transaction_type: 'dépense', category: 'Formation & Développement', account_code: '633' },
+  { transaction_type: 'dépense', category: 'Impôts & Taxes', account_code: '64' },
+  { transaction_type: 'dépense', category: 'Assurances', account_code: '625' },
+  { transaction_type: 'dépense', category: 'Autre', account_code: '604' }
+];
+
 export const ENTRY_TEMPLATES = [
   { code: 'CUST_PAY', name: 'Encaissement client', journal_code: 'BQ' },
   { code: 'SUPP_PAY', name: 'Paiement fournisseur', journal_code: 'BQ' },

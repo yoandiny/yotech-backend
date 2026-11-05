@@ -6,7 +6,8 @@ import {
   SYSCOHADA_ACCOUNTS,
   REPORT_STRUCTURES,
   DEFAULT_JOURNALS,
-  ENTRY_TEMPLATES
+  ENTRY_TEMPLATES,
+  DEFAULT_POSTING_MAP
 } from '../data/pcgSyscohada.js';
 import {
   AccountingError,
@@ -208,6 +209,29 @@ export const ensureAccountingSchema = async () => {
     )
   `);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS accounting_posting_rules (
+      id SERIAL PRIMARY KEY,
+      transaction_type VARCHAR(20) NOT NULL,
+      category VARCHAR(100),
+      account_id INTEGER NOT NULL REFERENCES accounting_accounts(id),
+      cash_account_id INTEGER REFERENCES accounting_cash_accounts(id) ON DELETE SET NULL,
+      vat_account_id INTEGER REFERENCES accounting_accounts(id) ON DELETE SET NULL,
+      journal_id INTEGER REFERENCES accounting_journals(id) ON DELETE SET NULL,
+      is_active BOOLEAN DEFAULT TRUE
+    )
+  `);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS accounting_posting_rules_type_category
+    ON accounting_posting_rules (transaction_type, COALESCE(category, ''))
+  `);
+
+  await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS auto_post BOOLEAN DEFAULT TRUE`);
+  await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS accounting_status VARCHAR(20) DEFAULT 'unposted'`);
+  await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS accounting_entry_id INTEGER`);
+  await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS accounting_error TEXT`);
+  await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS cash_account_id INTEGER`);
+
   await seedReferential();
   accountingReady = true;
 };
@@ -308,6 +332,28 @@ const seedReferential = async () => {
        VALUES ($1,$2,$3,'open',$4)`,
       [`Exercice ${year}`, `${year}-01-01`, `${year}-12-31`, versionId]
     );
+  }
+
+  const ruleCount = await query('SELECT COUNT(*)::int AS n FROM accounting_posting_rules');
+  if (ruleCount.rows[0].n === 0) {
+    const accounts = await query('SELECT id, code FROM accounting_accounts WHERE version_id = $1', [versionId]);
+    const byCode = Object.fromEntries(accounts.rows.map((row) => [row.code, row.id]));
+    const bankCash = (await query(`SELECT id FROM accounting_cash_accounts WHERE kind = 'bank' LIMIT 1`)).rows[0];
+    for (const row of DEFAULT_POSTING_MAP) {
+      const accountId = byCode[row.account_code];
+      if (!accountId) continue;
+      await query(
+        `INSERT INTO accounting_posting_rules (transaction_type, category, account_id, cash_account_id, vat_account_id)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [
+          row.transaction_type,
+          row.category,
+          accountId,
+          bankCash?.id || null,
+          row.transaction_type === 'revenu' ? (byCode['445'] || null) : (byCode['4456'] || null)
+        ]
+      );
+    }
   }
 };
 
@@ -955,16 +1001,87 @@ export const AccountingModel = {
     return results;
   },
 
+  listPostingRules: async () => {
+    await ensureAccountingSchema();
+    const result = await query(`
+      SELECT r.*, a.code AS account_code, a.name AS account_name,
+             c.name AS cash_account_name, v.code AS vat_account_code, j.code AS journal_code
+      FROM accounting_posting_rules r
+      JOIN accounting_accounts a ON a.id = r.account_id
+      LEFT JOIN accounting_cash_accounts c ON c.id = r.cash_account_id
+      LEFT JOIN accounting_accounts v ON v.id = r.vat_account_id
+      LEFT JOIN accounting_journals j ON j.id = r.journal_id
+      ORDER BY r.transaction_type, COALESCE(r.category, '')
+    `);
+    return result.rows;
+  },
+
+  upsertPostingRule: async (data) => {
+    await ensureAccountingSchema();
+    if (data.id) {
+      const result = await query(
+        `UPDATE accounting_posting_rules SET
+          transaction_type=$1, category=$2, account_id=$3, cash_account_id=$4,
+          vat_account_id=$5, journal_id=$6, is_active=$7
+         WHERE id=$8 RETURNING *`,
+        [
+          data.transaction_type, data.category || null, data.account_id,
+          data.cash_account_id || null, data.vat_account_id || null,
+          data.journal_id || null, data.is_active !== false, data.id
+        ]
+      );
+      return result.rows[0];
+    }
+    const result = await query(
+      `INSERT INTO accounting_posting_rules
+        (transaction_type, category, account_id, cash_account_id, vat_account_id, journal_id, is_active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [
+        data.transaction_type, data.category || null, data.account_id,
+        data.cash_account_id || null, data.vat_account_id || null,
+        data.journal_id || null, data.is_active !== false
+      ]
+    );
+    return result.rows[0];
+  },
+
+  findEntryBySource: async (sourceType, sourceId) => {
+    await ensureAccountingSchema();
+    const result = await query(
+      `SELECT * FROM accounting_entries
+       WHERE source_type = $1 AND source_id = $2 AND status IN ('draft','posted','locked')
+       ORDER BY id DESC LIMIT 1`,
+      [sourceType, sourceId]
+    );
+    if (!result.rows[0]) return null;
+    return AccountingModel.getEntry(result.rows[0].id);
+  },
+
+  pendingFinanceTransactions: async () => {
+    await ensureAccountingSchema();
+    const result = await query(`
+      SELECT id, description, amount, total_amount, type_transaction, category, date_transaction,
+             accounting_status, accounting_error, auto_post, accounting_entry_id
+      FROM finances
+      WHERE COALESCE(is_quote, FALSE) = FALSE
+        AND COALESCE(accounting_status, 'unposted') IN ('unposted', 'error')
+      ORDER BY date_transaction DESC, id DESC
+      LIMIT 50
+    `);
+    return result.rows;
+  },
+
   dashboard: async () => {
     await ensureAccountingSchema();
     const period = (await query(`SELECT * FROM accounting_periods WHERE status = 'open' ORDER BY start_date DESC LIMIT 1`)).rows[0]
       || (await query('SELECT * FROM accounting_periods ORDER BY start_date DESC LIMIT 1')).rows[0];
     const filters = period ? { period_id: period.id } : {};
-    const [tb, statements, entries, cash] = await Promise.all([
+    const [tb, statements, entries, cash, pending] = await Promise.all([
       AccountingModel.trialBalance(filters),
       AccountingModel.statements(filters),
       AccountingModel.listEntries({ period_id: period?.id }),
-      AccountingModel.treasury(filters)
+      AccountingModel.treasury(filters),
+      AccountingModel.pendingFinanceTransactions()
     ]);
     const cashBalance = cash.reduce((sum, item) => money(sum + Number(item.balance || 0)), 0);
     return {
@@ -975,9 +1092,11 @@ export const AccountingModel = {
       result: statements.pnl.result,
       trial_balanced: money(tb.totals.debit - tb.totals.credit) === 0,
       recent_entries: entries.slice(0, 8),
+      pending_transactions: pending,
       alerts: [
         period?.status !== 'open' ? 'Aucun exercice ouvert.' : null,
-        money(tb.totals.debit - tb.totals.credit) !== 0 ? 'La balance n’est pas équilibrée.' : null
+        money(tb.totals.debit - tb.totals.credit) !== 0 ? 'La balance n’est pas équilibrée.' : null,
+        pending.length ? `${pending.length} transaction(s) en attente de comptabilisation.` : null
       ].filter(Boolean)
     };
   }

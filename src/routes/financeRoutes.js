@@ -19,6 +19,7 @@ import {
   getQuoteFormData,
   getTransaction,
   deleteTransaction,
+  postTransactionAccounting,
   deleteQuote,
   acceptQuote,
   duplicateQuote
@@ -31,6 +32,7 @@ router.get('/chart', getChartData);
 router.get('/expenses-by-category', getExpensesByCategory);
 router.get('/income-by-category', getIncomeByCategory);
 router.post('/', createTransaction);
+router.post('/:id/post-accounting', postTransactionAccounting);
 router.get('/history', getHistory);
 router.get('/goal', getGoal);
 router.post('/goal', setGoal);

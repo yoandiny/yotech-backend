@@ -59,5 +59,8 @@ export const AccountingController = {
   trialBalance: handle((req) => AccountingModel.trialBalance(req.query)),
   statements: handle((req) => AccountingModel.statements(req.query)),
   auxiliary: handle((req) => AccountingModel.auxiliaryBalance(req.query)),
-  treasury: handle((req) => AccountingModel.treasury(req.query))
+  treasury: handle((req) => AccountingModel.treasury(req.query)),
+  listPostingRules: handle(() => AccountingModel.listPostingRules()),
+  upsertPostingRule: handle((req) => AccountingModel.upsertPostingRule(req.body)),
+  pendingTransactions: handle(() => AccountingModel.pendingFinanceTransactions())
 };
