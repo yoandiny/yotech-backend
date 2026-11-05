@@ -1,5 +1,6 @@
 import { query } from '../config/db.js';
 import { ensureClientsTable } from '../models/clientModel.js';
+import { ensureAccountingSchema } from '../models/accountingModel.js';
 
 const migrateQuotesFromFinances = async () => {
   await query(`
@@ -345,6 +346,7 @@ export const initDb = async () => {
 
     await migrateQuotesFromFinances();
     await ensureClientsTable();
+    await ensureAccountingSchema();
   } catch (error) {
     console.error('Error initializing database:', error);
   }

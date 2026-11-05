@@ -9,6 +9,7 @@ import clientRoutes from './clientRoutes.js';
 import contractRoutes from './contractRoutes.js';
 import assemblyRoutes from './assemblyRoutes.js';
 import associateRoutes from './associateRoutes.js';
+import accountingRoutes from './accountingRoutes.js';
 import { attachActor, restrictAssociateWrites } from '../middleware/actor.js';
 
 const router = express.Router();
@@ -26,5 +27,6 @@ router.use('/clients', clientRoutes);
 router.use('/contracts', contractRoutes);
 router.use('/assemblies', assemblyRoutes);
 router.use('/associates', associateRoutes);
+router.use('/accounting', accountingRoutes);
 
 export default router;
