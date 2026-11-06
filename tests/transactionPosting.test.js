@@ -129,3 +129,28 @@ test('OpenRouter propose les comptes, sinon repli sur la règle', async () => {
   setOpenRouterTransport(null);
   delete process.env.OPENROUTER_API_KEY;
 });
+
+test('acompte devis : débit du moyen de paiement, crédit 4191', async () => {
+  const cashAccounts = await AccountingModel.listCashAccounts();
+  const bank = cashAccounts.find((item) => item.kind === 'bank');
+  assert.ok(bank);
+
+  const receipt = await insertFinance({
+    description: 'Acompte 30% devis DEV-1 — Site vitrine',
+    amount: 30000,
+    type: 'revenu',
+    category: 'Développement Web'
+  });
+  const posted = await posting.postQuoteReceipt(receipt, { cashAccountId: bank.id });
+  assert.equal(posted.accounting_status, 'posted');
+  const entry = await AccountingModel.getEntry(posted.accounting_entry_id);
+  const codes = entry.lines.map((line) => line.account_code).sort();
+  assert.deepEqual(codes, ['4191', '512']);
+  const debitLine = entry.lines.find((line) => Number(line.debit) > 0);
+  assert.equal(debitLine.account_code, '512');
+
+  await assert.rejects(
+    () => posting.resolveQuoteReceiptPlan(receipt, null),
+    AccountingError
+  );
+});

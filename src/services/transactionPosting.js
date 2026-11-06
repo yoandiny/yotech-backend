@@ -120,6 +120,121 @@ export const resolvePostingPlan = async (transaction) => {
   return resolveRulePlan(transaction);
 };
 
+const accountByCode = (accounts, codes) => {
+  for (const code of codes) {
+    const match = accounts.find((item) => item.code === code && item.is_postable !== false);
+    if (match) return match;
+  }
+  return null;
+};
+
+export const resolveQuoteReceiptPlan = async (transaction, cashAccountId) => {
+  await AccountingModel.ensure();
+  const cashAccounts = await AccountingModel.listCashAccounts();
+  const cash = cashAccounts.find((item) => Number(item.id) === Number(cashAccountId) && item.is_active !== false);
+  if (!cash) {
+    throw new AccountingError('Indiquez le moyen de paiement (banque, caisse ou autre compte de trésorerie).');
+  }
+
+  const ht = money(transaction.amount);
+  const tax = money(transaction.tax_amount);
+  const ttc = money(transaction.total_amount || (ht + tax));
+  if (ttc <= 0) throw new AccountingError('Le montant dû doit être supérieur à zéro.');
+
+  const accounts = await AccountingModel.listAccounts({ postable: true });
+  const advance = accountByCode(accounts, ['4191', '419']);
+  if (!advance) {
+    throw new AccountingError('Le compte 4191 (acomptes reçus) est absent du plan comptable.');
+  }
+  if (tax > 0 && !accountByCode(accounts, ['4457', '445'])) {
+    throw new AccountingError('TVA présente mais le compte 4457 (TVA collectée) n’est pas configuré.');
+  }
+  const vat = tax > 0 ? accountByCode(accounts, ['4457', '445']) : null;
+
+  const journals = await AccountingModel.listJournals();
+  const journal = journals.find((item) => item.code === (cash.kind === 'cash' ? 'CAI' : 'BQ'))
+    || journals.find((item) => item.code === 'OD')
+    || journals[0];
+  if (!journal) throw new AccountingError('Aucun journal comptable n’est configuré.');
+
+  const label = transaction.description || 'Acompte sur devis';
+  const lines = [
+    {
+      account_id: cash.account_id,
+      debit: ttc,
+      credit: 0,
+      label,
+      party_type: null,
+      party_id: null
+    },
+    {
+      account_id: advance.id,
+      debit: 0,
+      credit: tax > 0 ? ht : ttc,
+      label,
+      party_type: transaction.client_id ? 'client' : null,
+      party_id: transaction.client_id || null
+    }
+  ];
+  if (tax > 0 && vat) {
+    lines.push({
+      account_id: vat.id,
+      debit: 0,
+      credit: tax,
+      label: 'TVA collectée sur acompte',
+      party_type: null,
+      party_id: null
+    });
+  }
+  validateLines(lines);
+  return {
+    source: 'quote',
+    cash,
+    journal,
+    lines,
+    label,
+    rationale: `Acompte reçu sur ${cash.name} (${cash.account_code}) / ${advance.code} ${advance.name}`
+  };
+};
+
+export const postQuoteReceipt = async (transaction, { actorId, cashAccountId } = {}) => {
+  await AccountingModel.ensure();
+  await ensureFinanceColumns();
+  try {
+    const existing = await AccountingModel.findEntryBySource(SOURCE, transaction.id);
+    if (existing && (existing.status === 'posted' || existing.status === 'locked')) {
+      throw new AccountingError('Cet encaissement est déjà lié à une écriture comptabilisée.', 409);
+    }
+    const plan = await resolveQuoteReceiptPlan(transaction, cashAccountId);
+    const draft = await AccountingModel.saveDraft({
+      id: existing?.status === 'draft' ? existing.id : null,
+      journal_id: plan.journal.id,
+      entry_date: transaction.date_transaction || transaction.date,
+      reference: transaction.quote_number || `DEV-${transaction.id}`,
+      label: plan.label,
+      source_type: SOURCE,
+      source_id: transaction.id,
+      source_reference: transaction.quote_number || String(transaction.id),
+      lines: plan.lines
+    }, actorId);
+    const posted = await AccountingModel.postEntry(draft.id, actorId);
+    return persistStatus(
+      transaction.id,
+      true,
+      cashAccountId || plan.cash.id,
+      'posted',
+      posted.id,
+      null,
+      { source: plan.source, rationale: plan.rationale }
+    );
+  } catch (error) {
+    if (error.status !== 409) {
+      await persistStatus(transaction.id, true, cashAccountId, 'error', null, error.message, { source: 'quote' });
+    }
+    throw error;
+  }
+};
+
 const persistStatus = async (financeId, autoPost, cashAccountId, status, entryId, error, extra = {}) => {
   return markFinance(financeId, {
     auto_post: autoPost,

@@ -41,6 +41,9 @@ const ensureQuotesTableExists = async () => {
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS mission_id INTEGER`);
   await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS finance_id VARCHAR(64)`);
   await query(`ALTER TABLE quotes ALTER COLUMN finance_id TYPE VARCHAR(64) USING finance_id::text`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS paid_percent DECIMAL(5, 2)`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS cash_account_id INTEGER`);
+  await query(`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS accounting_entry_id INTEGER`);
   await ensureClientsTable();
 };
 
@@ -205,8 +208,9 @@ export const FinanceModel = {
       client_stat
     });
     
-    const tax_amount = (is_invoice || is_quote) ? (amount * tax_rate / 100) : 0;
-    const total_amount = (is_invoice || is_quote) ? (amount + tax_amount) : amount;
+    const applyTax = Boolean(is_invoice || is_quote || data.apply_tax);
+    const tax_amount = applyTax ? (Number(amount) * Number(tax_rate) / 100) : 0;
+    const total_amount = applyTax ? (Number(amount) + tax_amount) : amount;
     
     const sql = `
       INSERT INTO finances (
@@ -784,16 +788,19 @@ export const FinanceModel = {
     return result.rows[0];
   },
 
-  markQuoteAccepted: async (id, { mission_id, finance_id }) => {
+  markQuoteAccepted: async (id, { mission_id, finance_id, paid_percent, cash_account_id, accounting_entry_id }) => {
     await ensureQuotesTableExists();
     const result = await query(
       `UPDATE quotes
        SET quote_status = 'accepted',
            mission_id = $2,
-           finance_id = $3
+           finance_id = $3,
+           paid_percent = $4,
+           cash_account_id = $5,
+           accounting_entry_id = $6
        WHERE id = $1
        RETURNING *`,
-      [id, mission_id, finance_id]
+      [id, mission_id, finance_id, paid_percent ?? null, cash_account_id || null, accounting_entry_id || null]
     );
     return result.rows[0];
   },

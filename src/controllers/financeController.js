@@ -1,6 +1,6 @@
 import { FinanceModel } from '../models/financeModel.js';
 import { MissionModel } from '../models/missionModel.js';
-import { handleFinanceDelete, postFinanceTransaction, syncFinanceAccounting } from '../services/transactionPosting.js';
+import { handleFinanceDelete, postFinanceTransaction, postQuoteReceipt, syncFinanceAccounting } from '../services/transactionPosting.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -210,12 +210,24 @@ export const acceptQuote = async (req, res) => {
       return res.status(409).json({ error: 'Ce devis a déjà été validé' });
     }
 
-    const paidAmount = parseFloat(quote.total_amount || quote.amount) || 0;
+    const percent = Number(req.body?.percent);
+    const cashAccountId = req.body?.cash_account_id;
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
+      return res.status(400).json({ error: 'Indiquez le pourcentage dû sur la prestation (entre 0 et 100, exclu 0).' });
+    }
+    if (!cashAccountId) {
+      return res.status(400).json({ error: 'Indiquez le moyen de paiement.' });
+    }
+
+    const quoteHt = Number(quote.amount) || 0;
+    const quoteTax = Number(quote.tax_amount) || 0;
+    const quoteTtc = Number(quote.total_amount) || (quoteHt + quoteTax);
+    const paidHt = Math.round((quoteHt * percent / 100) * 100) / 100;
     const today = req.body?.date || new Date().toISOString().split('T')[0];
 
     const transaction = await FinanceModel.addTransaction({
-      description: `Paiement devis ${quote.quote_number} — ${quote.description}`,
-      amount: paidAmount,
+      description: `Acompte ${percent}% devis ${quote.quote_number} — ${quote.description}`,
+      amount: paidHt,
       type: 'revenu',
       date: today,
       category: quote.category || 'Prestation',
@@ -228,8 +240,23 @@ export const acceptQuote = async (req, res) => {
       client_nif: quote.client_nif,
       client_stat: quote.client_stat,
       client_id: quote.client_id,
+      tax_rate: quote.tax_rate || 0,
+      apply_tax: Number(quote.tax_rate) > 0,
+      quote_number: quote.quote_number,
+      cash_account_id: cashAccountId
     });
 
+    let posted = transaction;
+    try {
+      posted = await postQuoteReceipt(transaction, {
+        actorId: req.actor?.id,
+        cashAccountId
+      });
+    } catch (error) {
+      posted = { ...transaction, accounting_status: 'error', accounting_error: error.message, accounting_failed: true };
+    }
+
+    const fullyPaid = percent >= 100;
     const mission = await MissionModel.create({
       title: quote.description,
       description: quote.prestations_details || null,
@@ -241,41 +268,46 @@ export const acceptQuote = async (req, res) => {
       priority: 'normale',
       start_date: today,
       deadline: quote.due_date || null,
-      budget: paidAmount,
+      budget: quoteTtc,
       currency: quote.currency || 'MGA',
       category: quote.category || null,
-      notes: `Mission créée automatiquement depuis le devis ${quote.quote_number}`,
+      notes: `Mission créée automatiquement depuis le devis ${quote.quote_number} — acompte ${percent}%`,
       quote_id: quote.id,
       finance_id: transaction.id,
       client_id: quote.client_id,
+      acompte_percent: percent,
       acompte_paid: true,
       acompte_date: today,
       acompte_finance_id: transaction.id,
-      final_paid: true,
-      final_date: today,
-      final_finance_id: transaction.id,
+      final_paid: fullyPaid,
+      final_date: fullyPaid ? today : null,
+      final_finance_id: fullyPaid ? transaction.id : null,
     });
 
     await MissionModel.addUpdate({
       mission_id: mission.id,
       author: 'Système',
       title: 'Mission créée',
-      content: `Paiement reçu pour le devis ${quote.quote_number}. La mission démarre.`,
+      content: `Acompte de ${percent}% reçu pour le devis ${quote.quote_number} (${posted.total_amount || posted.amount} ${quote.currency || 'MGA'}). La mission démarre.`,
       progress_snapshot: 0,
     });
 
     const updatedQuote = await FinanceModel.markQuoteAccepted(quote.id, {
       mission_id: mission.id,
       finance_id: transaction.id,
+      paid_percent: percent,
+      cash_account_id: cashAccountId,
+      accounting_entry_id: posted.accounting_entry_id
     });
 
     res.json({
       quote: { ...updatedQuote, is_quote: true, id_transaction: updatedQuote.id },
-      transaction,
+      transaction: posted,
       mission
     });
   } catch (error) {
     console.error('Error accepting quote:', error);
+    if (error.status) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 };

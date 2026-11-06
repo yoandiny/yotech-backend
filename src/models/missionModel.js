@@ -152,10 +152,10 @@ export const MissionModel = {
     } = data;
 
     const fromQuote = Boolean(quote_id);
-    const pct   = fromQuote ? 100 : parseFloat(acompte_percent ?? 30);
+    const pct   = parseFloat(acompte_percent ?? (fromQuote ? 100 : 30));
     const total = parseFloat(budget ?? 0);
-    const ac    = fromQuote ? total : parseFloat(((pct / 100) * total).toFixed(2));
-    const fin   = fromQuote ? 0 : parseFloat((total - ac).toFixed(2));
+    const ac    = parseFloat(((pct / 100) * total).toFixed(2));
+    const fin   = parseFloat((total - ac).toFixed(2));
 
     const sql = `
       INSERT INTO missions (
@@ -183,10 +183,10 @@ export const MissionModel = {
       start_date || null, end_date || null, deadline || null,
       total, currency || 'MGA',
       pct, ac, fin,
-      acompte_paid ?? fromQuote, fromQuote ? (acompte_date || new Date()) : (acompte_date || null),
+      acompte_paid ?? (fromQuote && pct > 0), fromQuote ? (acompte_date || new Date()) : (acompte_date || null),
       acompte_finance_id || finance_id || null,
-      final_paid ?? fromQuote, fromQuote ? (final_date || new Date()) : (final_date || null),
-      final_finance_id || finance_id || null,
+      final_paid ?? (fromQuote && pct >= 100), fromQuote && pct >= 100 ? (final_date || new Date()) : (final_date || null),
+      pct >= 100 ? (final_finance_id || finance_id || null) : (final_finance_id || null),
       category || null,
       tags && tags.length > 0 ? tags : null,
       notes || null,
