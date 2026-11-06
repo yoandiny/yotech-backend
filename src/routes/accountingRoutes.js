@@ -41,5 +41,7 @@ router.get('/reports/treasury', AccountingController.treasury);
 router.get('/posting-rules', AccountingController.listPostingRules);
 router.post('/posting-rules', AccountingController.upsertPostingRule);
 router.get('/pending-transactions', AccountingController.pendingTransactions);
+router.get('/ai-status', AccountingController.aiStatus);
+router.post('/suggest-posting', AccountingController.suggestPosting);
 
 export default router;

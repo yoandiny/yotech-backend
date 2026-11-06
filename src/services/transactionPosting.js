@@ -1,6 +1,7 @@
 import { query } from '../config/db.js';
 import { AccountingModel } from '../models/accountingModel.js';
 import { AccountingError, money, validateLines } from './accountingEngine.js';
+import { suggestValidatedPlan } from './accountSuggestion.js';
 
 const SOURCE = 'finance';
 
@@ -10,6 +11,8 @@ const ensureFinanceColumns = async () => {
   await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS accounting_entry_id INTEGER`);
   await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS accounting_error TEXT`);
   await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS cash_account_id INTEGER`);
+  await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS accounting_source VARCHAR(20)`);
+  await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS accounting_rationale TEXT`);
 };
 
 const markFinance = async (id, fields) => {
@@ -20,10 +23,21 @@ const markFinance = async (id, fields) => {
       accounting_status = COALESCE($3, accounting_status),
       accounting_entry_id = COALESCE($4, accounting_entry_id),
       accounting_error = $5,
-      cash_account_id = COALESCE($6, cash_account_id)
+      cash_account_id = COALESCE($6, cash_account_id),
+      accounting_source = $7,
+      accounting_rationale = $8
      WHERE id = $1
      RETURNING *`,
-    [id, fields.auto_post ?? null, fields.accounting_status ?? null, fields.accounting_entry_id ?? null, fields.accounting_error ?? null, fields.cash_account_id ?? null]
+    [
+      id,
+      fields.auto_post ?? null,
+      fields.accounting_status ?? null,
+      fields.accounting_entry_id ?? null,
+      fields.accounting_error ?? null,
+      fields.cash_account_id ?? null,
+      fields.accounting_source ?? null,
+      fields.accounting_rationale ?? null
+    ]
   );
   return result.rows[0];
 };
@@ -34,7 +48,7 @@ const pickRule = (rules, type, category) => {
   return rules.find((rule) => rule.transaction_type === type && !rule.category && rule.is_active !== false) || null;
 };
 
-export const resolvePostingPlan = async (transaction) => {
+export const resolveRulePlan = async (transaction) => {
   await AccountingModel.ensure();
   const type = transaction.type_transaction || transaction.type;
   const category = transaction.category || null;
@@ -92,16 +106,29 @@ export const resolvePostingPlan = async (transaction) => {
   }
 
   validateLines(lines);
-  return { rule, cash, journal, lines, label };
+  return { source: 'rule', rule, cash, journal, lines, label, rationale: null };
 };
 
-const persistStatus = async (financeId, autoPost, cashAccountId, status, entryId, error) => {
+export const resolvePostingPlan = async (transaction) => {
+  await AccountingModel.ensure();
+  try {
+    const aiPlan = await suggestValidatedPlan(transaction);
+    if (aiPlan) return aiPlan;
+  } catch {
+    // Repli volontaire : une proposition IA invalide ne bloque pas si une règle existe.
+  }
+  return resolveRulePlan(transaction);
+};
+
+const persistStatus = async (financeId, autoPost, cashAccountId, status, entryId, error, extra = {}) => {
   return markFinance(financeId, {
     auto_post: autoPost,
     cash_account_id: cashAccountId,
     accounting_status: status,
     accounting_entry_id: entryId,
-    accounting_error: error
+    accounting_error: error,
+    accounting_source: extra.source ?? null,
+    accounting_rationale: extra.rationale ?? null
   });
 };
 
@@ -128,7 +155,15 @@ export const postFinanceTransaction = async (transaction, { actorId, force = fal
   };
   const draft = await AccountingModel.saveDraft(payload, actorId);
   const posted = await AccountingModel.postEntry(draft.id, actorId);
-  return persistStatus(transaction.id, true, transaction.cash_account_id || plan.cash.id, 'posted', posted.id, null);
+  return persistStatus(
+    transaction.id,
+    true,
+    transaction.cash_account_id || plan.cash.id,
+    'posted',
+    posted.id,
+    null,
+    { source: plan.source, rationale: plan.rationale }
+  );
 };
 
 export const syncFinanceAccounting = async (transaction, { autoPost, actorId } = {}) => {
