@@ -5,18 +5,18 @@ import { hydrateSuggestion, parseSuggestionJson } from '../src/services/accountS
 
 const catalogs = {
   accounts: [
-    { id: 1, code: '521', name: 'Banques locales', is_postable: true },
-    { id: 2, code: '604', name: 'Fournitures', is_postable: true },
+    { id: 1, code: '512', name: 'Banques comptes courants', is_postable: true },
+    { id: 2, code: '606', name: 'Achats non stockés de matières et fournitures', is_postable: true },
     { id: 3, code: '706', name: 'Prestations', is_postable: true },
     { id: 4, code: '6', name: 'Charges', is_postable: false }
   ],
-  cashAccounts: [{ id: 10, account_id: 1, account_code: '521', kind: 'bank', name: 'BOA' }],
+  cashAccounts: [{ id: 10, account_id: 1, account_code: '512', kind: 'bank', name: 'BOA' }],
   journals: [{ id: 20, code: 'BQ', name: 'Banque' }],
   transaction: { description: 'Achat papier', amount: 100000, type: 'dépense' }
 };
 
 test('parse les comptes JSON même s’ils sont dans un fence markdown', () => {
-  const parsed = parseSuggestionJson('```json\n{"lines":[{"account_code":"604","debit":1,"credit":0},{"account_code":"521","debit":0,"credit":1}]}\n```');
+  const parsed = parseSuggestionJson('```json\n{"lines":[{"account_code":"606","debit":1,"credit":0},{"account_code":"512","debit":0,"credit":1}]}\n```');
   assert.equal(parsed.lines.length, 2);
 });
 
@@ -25,8 +25,8 @@ test('hydrate une proposition IA équilibrée', () => {
     journal_code: 'BQ',
     rationale: 'Fournitures consommées',
     lines: [
-      { account_code: '604', debit: 100000, credit: 0, label: 'Achat papier' },
-      { account_code: '521', debit: 0, credit: 100000, label: 'Banque' }
+      { account_code: '606', debit: 100000, credit: 0, label: 'Achat papier' },
+      { account_code: '512', debit: 0, credit: 100000, label: 'Banque' }
     ]
   }, catalogs);
   assert.equal(plan.source, 'ai');
@@ -40,7 +40,7 @@ test('rejette un compte inexistant ou une écriture déséquilibrée', () => {
       journal_code: 'BQ',
       lines: [
         { account_code: '999', debit: 100000, credit: 0 },
-        { account_code: '521', debit: 0, credit: 100000 }
+        { account_code: '512', debit: 0, credit: 100000 }
       ]
     }, catalogs),
     AccountingError
@@ -49,8 +49,8 @@ test('rejette un compte inexistant ou une écriture déséquilibrée', () => {
     () => hydrateSuggestion({
       journal_code: 'BQ',
       lines: [
-        { account_code: '604', debit: 80000, credit: 0 },
-        { account_code: '521', debit: 0, credit: 100000 }
+        { account_code: '606', debit: 80000, credit: 0 },
+        { account_code: '512', debit: 0, credit: 100000 }
       ]
     }, catalogs),
     AccountingError

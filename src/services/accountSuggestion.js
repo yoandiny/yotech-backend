@@ -2,8 +2,9 @@ import { AccountingModel } from '../models/accountingModel.js';
 import { AccountingError, money, totalsOf, validateLines } from './accountingEngine.js';
 import { completeJson, isOpenRouterConfigured, openRouterConfig } from './openrouter.js';
 
-const SYSTEM_PROMPT = `Tu es un expert-comptable SYSCOHADA (Madagascar / OHADA).
+const SYSTEM_PROMPT = `Tu es un expert-comptable du Plan Comptable Général Madagascar 2005 (PCG 2005).
 À partir du contexte d'une transaction de trésorerie, tu proposes une écriture en partie double.
+N'utilise pas le SYSCOHADA : à Madagascar, 604 = Achats d'études et de prestations de services, 606 = fournitures non stockées, 512 = banques, 531 = caisse.
 
 Règles :
 - Réponds UNIQUEMENT par un objet JSON, sans markdown.

@@ -98,8 +98,8 @@ test('OpenRouter propose les comptes, sinon repli sur la règle', async () => {
     journal_code: 'BQ',
     rationale: 'Vente de services informatiques',
     lines: [
-      { account_code: '521', debit: 77000, credit: 0, label: 'Banque' },
-      { account_code: '704', debit: 0, credit: 77000, label: 'Ventes de services' }
+      { account_code: '512', debit: 77000, credit: 0, label: 'Banque' },
+      { account_code: '706', debit: 0, credit: 77000, label: 'Prestations de services' }
     ]
   });
   const income = await insertFinance({
@@ -113,7 +113,7 @@ test('OpenRouter propose les comptes, sinon repli sur la règle', async () => {
   assert.equal(posted.accounting_source, 'ai');
   const entry = await AccountingModel.getEntry(posted.accounting_entry_id);
   const codes = entry.lines.map((line) => line.account_code).sort();
-  assert.deepEqual(codes, ['521', '704']);
+  assert.deepEqual(codes, ['512', '706']);
 
   mockOpenRouter({ lines: [{ account_code: '999', debit: 25000, credit: 0 }] });
   const fallback = await insertFinance({

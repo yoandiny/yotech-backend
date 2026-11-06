@@ -34,7 +34,12 @@ test('Intégration comptable — écriture équilibrée, refus du déséquilibre
   const od = journals.find((item) => item.code === 'OD');
   const client = await postable('411');
   const sales = await postable('706');
-  assert.ok(client && sales);
+  const studies = await postable('604');
+  const supplies = await postable('606');
+  const bank = await postable('512');
+  assert.ok(client && sales && studies && supplies && bank);
+  assert.match(studies.name, /études et de prestations/i);
+  assert.match(supplies.name, /fournitures/i);
 
   const draft = await AccountingModel.saveDraft({
     journal_id: od.id,

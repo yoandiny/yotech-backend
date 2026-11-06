@@ -1,13 +1,14 @@
 import { query } from '../config/db.js';
 import pool from '../config/db.js';
 import {
-  SYSCOHADA_STANDARD,
-  SYSCOHADA_VERSION,
-  SYSCOHADA_ACCOUNTS,
+  PCG_STANDARD,
+  PCG_VERSION,
+  PCG_ACCOUNTS,
   REPORT_STRUCTURES,
   DEFAULT_JOURNALS,
   ENTRY_TEMPLATES,
-  DEFAULT_POSTING_MAP
+  DEFAULT_POSTING_MAP,
+  OBSOLETE_SYSCOHADA_CODES
 } from '../data/pcgSyscohada.js';
 import {
   AccountingError,
@@ -236,13 +237,105 @@ export const ensureAccountingSchema = async () => {
   accountingReady = true;
 };
 
+const migrateStandardLabels = async () => {
+  await query(
+    `UPDATE accounting_standards SET code = $1, name = $2, country = $3 WHERE code IN ('SYSCOHADA', 'PCG-MG')`,
+    [PCG_STANDARD.code, PCG_STANDARD.name, PCG_STANDARD.country]
+  );
+  await query(
+    `UPDATE accounting_standard_versions SET code = $1, name = $2, valid_from = $3, is_active = TRUE
+     WHERE code IN ('SYSCOHADA-2017', 'PCG-MG-2005')`,
+    [PCG_VERSION.code, PCG_VERSION.name, PCG_VERSION.valid_from]
+  );
+};
+
+const syncChartOfAccounts = async (versionId) => {
+  const existing = await query('SELECT id, code, name FROM accounting_accounts WHERE version_id = $1', [versionId]);
+  const byCode = Object.fromEntries(existing.rows.map((row) => [row.code, row.id]));
+  const previous604 = existing.rows.find((row) => row.code === '604')?.name || '';
+  const migrating = Boolean(previous604) && /fournitures/i.test(previous604);
+
+  for (const account of PCG_ACCOUNTS) {
+    if (byCode[account.code]) {
+      await query(
+        `UPDATE accounting_accounts SET
+          name = $1, mapping_key = $2, balance_nature = $3, is_postable = $4,
+          is_active = TRUE, auxiliary_type = $5, treasury_kind = $6
+         WHERE id = $7`,
+        [
+          account.name, account.mapping_key, account.balance_nature, account.is_postable,
+          account.auxiliary_type, account.treasury_kind, byCode[account.code]
+        ]
+      );
+    } else {
+      const inserted = await query(
+        `INSERT INTO accounting_accounts
+          (version_id, code, name, mapping_key, balance_nature, is_postable, auxiliary_type, treasury_kind)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         RETURNING id, code`,
+        [
+          versionId, account.code, account.name, account.mapping_key,
+          account.balance_nature, account.is_postable, account.auxiliary_type, account.treasury_kind
+        ]
+      );
+      byCode[inserted.rows[0].code] = inserted.rows[0].id;
+    }
+  }
+
+  for (const account of PCG_ACCOUNTS) {
+    const parentId = account.parent_code ? byCode[account.parent_code] || null : null;
+    await query(`UPDATE accounting_accounts SET parent_id = $1 WHERE id = $2`, [parentId, byCode[account.code]]);
+  }
+
+  for (const code of OBSOLETE_SYSCOHADA_CODES) {
+    if (byCode[code] && !PCG_ACCOUNTS.some((account) => account.code === code)) {
+      await query(
+        `UPDATE accounting_accounts SET is_active = FALSE, is_postable = FALSE WHERE id = $1`,
+        [byCode[code]]
+      );
+    }
+  }
+
+  return { byCode, migrating };
+};
+
+const upsertPostingRules = async (versionId, byCode, { overwrite } = {}) => {
+  const bankCash = (await query(`SELECT id FROM accounting_cash_accounts WHERE kind = 'bank' LIMIT 1`)).rows[0];
+  for (const row of DEFAULT_POSTING_MAP) {
+    const accountId = byCode[row.account_code];
+    if (!accountId) continue;
+    const vatId = row.transaction_type === 'revenu' ? (byCode['4457'] || byCode['445'] || null) : (byCode['44566'] || byCode['4456'] || null);
+    const existing = await query(
+      `SELECT id FROM accounting_posting_rules
+       WHERE transaction_type = $1 AND COALESCE(category, '') = COALESCE($2, '')`,
+      [row.transaction_type, row.category]
+    );
+    if (existing.rows[0]) {
+      if (overwrite) {
+        await query(
+          `UPDATE accounting_posting_rules SET account_id = $1, cash_account_id = COALESCE(cash_account_id, $2), vat_account_id = $3
+           WHERE id = $4`,
+          [accountId, bankCash?.id || null, vatId, existing.rows[0].id]
+        );
+      }
+    } else {
+      await query(
+        `INSERT INTO accounting_posting_rules (transaction_type, category, account_id, cash_account_id, vat_account_id)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [row.transaction_type, row.category, accountId, bankCash?.id || null, vatId]
+      );
+    }
+  }
+};
+
 const seedReferential = async () => {
+  await migrateStandardLabels();
   const standard = await query(
     `INSERT INTO accounting_standards (code, name, country)
      VALUES ($1, $2, $3)
      ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
      RETURNING *`,
-    [SYSCOHADA_STANDARD.code, SYSCOHADA_STANDARD.name, SYSCOHADA_STANDARD.country]
+    [PCG_STANDARD.code, PCG_STANDARD.name, PCG_STANDARD.country]
   );
   const standardId = standard.rows[0].id;
 
@@ -251,31 +344,24 @@ const seedReferential = async () => {
      VALUES ($1, $2, $3, $4, TRUE)
      ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, is_active = TRUE
      RETURNING *`,
-    [standardId, SYSCOHADA_VERSION.code, SYSCOHADA_VERSION.name, SYSCOHADA_VERSION.valid_from]
+    [standardId, PCG_VERSION.code, PCG_VERSION.name, PCG_VERSION.valid_from]
   );
   const versionId = version.rows[0].id;
 
-  const existingAccounts = await query('SELECT COUNT(*)::int AS n FROM accounting_accounts WHERE version_id = $1', [versionId]);
-  if (existingAccounts.rows[0].n === 0) {
-    const byCode = new Map();
-    for (const account of SYSCOHADA_ACCOUNTS) {
-      const parentId = account.parent_code ? byCode.get(account.parent_code) || null : null;
-      const inserted = await query(
-        `INSERT INTO accounting_accounts
-          (version_id, code, name, parent_id, mapping_key, balance_nature, is_postable, auxiliary_type, treasury_kind)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         RETURNING id, code`,
-        [
-          versionId, account.code, account.name, parentId, account.mapping_key,
-          account.balance_nature, account.is_postable, account.auxiliary_type, account.treasury_kind
-        ]
-      );
-      byCode.set(inserted.rows[0].code, inserted.rows[0].id);
-    }
-  }
+  const { byCode, migrating } = await syncChartOfAccounts(versionId);
 
   const existingReports = await query('SELECT COUNT(*)::int AS n FROM accounting_report_structures WHERE version_id = $1', [versionId]);
   if (existingReports.rows[0].n === 0) {
+    for (const row of REPORT_STRUCTURES) {
+      await query(
+        `INSERT INTO accounting_report_structures
+          (version_id, report_type, section_code, section_label, mapping_key, group_label, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [versionId, row.report_type, row.section_code, row.section_label, row.mapping_key, row.group_label, row.sort_order]
+      );
+    }
+  } else if (migrating) {
+    await query(`DELETE FROM accounting_report_structures WHERE version_id = $1`, [versionId]);
     for (const row of REPORT_STRUCTURES) {
       await query(
         `INSERT INTO accounting_report_structures
@@ -306,20 +392,39 @@ const seedReferential = async () => {
     );
   }
 
+  const bank = byCode['512'];
+  const cash = byCode['531'];
+  if (bank) {
+    await query(
+      `UPDATE accounting_cash_accounts SET account_id = $1
+       WHERE kind = 'bank' AND account_id IN (
+         SELECT id FROM accounting_accounts WHERE code IN ('521', '52')
+       )`,
+      [bank]
+    );
+  }
+  if (cash) {
+    await query(
+      `UPDATE accounting_cash_accounts SET account_id = $1
+       WHERE kind = 'cash' AND account_id IN (
+         SELECT id FROM accounting_accounts WHERE code IN ('57', '53')
+       )`,
+      [cash]
+    );
+  }
+
   const cashCount = await query('SELECT COUNT(*)::int AS n FROM accounting_cash_accounts');
   if (cashCount.rows[0].n === 0) {
-    const bank = await query(`SELECT id FROM accounting_accounts WHERE code = '521' AND version_id = $1`, [versionId]);
-    const cash = await query(`SELECT id FROM accounting_accounts WHERE code = '57' AND version_id = $1`, [versionId]);
-    if (bank.rows[0]) {
+    if (bank) {
       await query(
         `INSERT INTO accounting_cash_accounts (name, kind, account_id, bank_name) VALUES ($1,'bank',$2,$3)`,
-        ['Banque principale', bank.rows[0].id, 'Banque']
+        ['Banque principale', bank, 'Banque']
       );
     }
-    if (cash.rows[0]) {
+    if (cash) {
       await query(
         `INSERT INTO accounting_cash_accounts (name, kind, account_id) VALUES ($1,'cash',$2)`,
-        ['Caisse', cash.rows[0].id]
+        ['Caisse', cash]
       );
     }
   }
@@ -334,27 +439,7 @@ const seedReferential = async () => {
     );
   }
 
-  const ruleCount = await query('SELECT COUNT(*)::int AS n FROM accounting_posting_rules');
-  if (ruleCount.rows[0].n === 0) {
-    const accounts = await query('SELECT id, code FROM accounting_accounts WHERE version_id = $1', [versionId]);
-    const byCode = Object.fromEntries(accounts.rows.map((row) => [row.code, row.id]));
-    const bankCash = (await query(`SELECT id FROM accounting_cash_accounts WHERE kind = 'bank' LIMIT 1`)).rows[0];
-    for (const row of DEFAULT_POSTING_MAP) {
-      const accountId = byCode[row.account_code];
-      if (!accountId) continue;
-      await query(
-        `INSERT INTO accounting_posting_rules (transaction_type, category, account_id, cash_account_id, vat_account_id)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [
-          row.transaction_type,
-          row.category,
-          accountId,
-          bankCash?.id || null,
-          row.transaction_type === 'revenu' ? (byCode['445'] || null) : (byCode['4456'] || null)
-        ]
-      );
-    }
-  }
+  await upsertPostingRules(versionId, byCode, { overwrite: migrating });
 };
 
 const audit = async (client, { entity_type, entity_id, action, actor_id, details }) => {
