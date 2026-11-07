@@ -8,13 +8,14 @@ router.get('/stats', MissionController.getStats);
 
 // CRUD
 router.get('/',    MissionController.getAll);
+router.get('/:id/payments', MissionController.listPayments);
 router.get('/:id', MissionController.getById);
 router.post('/',   MissionController.create);
 router.put('/:id', MissionController.update);
 router.patch('/:id/progress', MissionController.updateProgress);
 router.delete('/:id', MissionController.delete);
 
-// Paiements → créent des transactions dans finances
+router.post('/:id/payments', MissionController.addPayment);
 router.post('/:id/pay-acompte', MissionController.payAcompte);
 router.post('/:id/pay-final',   MissionController.payFinal);
 

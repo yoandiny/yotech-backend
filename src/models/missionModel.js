@@ -50,9 +50,25 @@ export const ensureMissionsSchema = async () => {
   await query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS quote_id INTEGER`);
   await query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS finance_id VARCHAR(64)`);
   await query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS client_id INTEGER`);
+  await query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS tax_rate DECIMAL(5, 2) DEFAULT 0`);
   await query(`ALTER TABLE missions ALTER COLUMN finance_id TYPE VARCHAR(64) USING finance_id::text`);
   await query(`ALTER TABLE missions ALTER COLUMN acompte_finance_id TYPE VARCHAR(64) USING acompte_finance_id::text`);
   await query(`ALTER TABLE missions ALTER COLUMN final_finance_id TYPE VARCHAR(64) USING final_finance_id::text`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS mission_payments (
+      id SERIAL PRIMARY KEY,
+      mission_id INTEGER NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+      amount DECIMAL(15, 2) NOT NULL,
+      payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      cash_account_id INTEGER,
+      kind VARCHAR(20) NOT NULL DEFAULT 'installment',
+      finance_id VARCHAR(64),
+      accounting_entry_id INTEGER,
+      label TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
   await query(`
     CREATE TABLE IF NOT EXISTS mission_updates (
@@ -80,6 +96,20 @@ export const ensureMissionsSchema = async () => {
 
   missionsReady = true;
 };
+
+const money = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+const paymentTotalsSql = `
+  SELECT m.*,
+         COALESCE(p.paid_total, 0)::numeric AS paid_total,
+         GREATEST(COALESCE(m.budget, 0) - COALESCE(p.paid_total, 0), 0)::numeric AS remaining
+  FROM missions m
+  LEFT JOIN (
+    SELECT mission_id, SUM(amount)::numeric AS paid_total
+    FROM mission_payments
+    GROUP BY mission_id
+  ) p ON p.mission_id = m.id
+`;
 
 const syncProgressFromStages = async (missionId) => {
   const stages = await query(
@@ -112,25 +142,25 @@ export const MissionModel = {
 
   getAll: async ({ status, priority, search } = {}) => {
     await ensureMissionsSchema();
-    let sql = `SELECT * FROM missions WHERE 1=1`;
+    let sql = `${paymentTotalsSql} WHERE 1=1`;
     const params = [];
     let idx = 1;
 
-    if (status) { sql += ` AND status = $${idx++}`; params.push(status); }
-    if (priority) { sql += ` AND priority = $${idx++}`; params.push(priority); }
+    if (status) { sql += ` AND m.status = $${idx++}`; params.push(status); }
+    if (priority) { sql += ` AND m.priority = $${idx++}`; params.push(priority); }
     if (search) {
-      sql += ` AND (title ILIKE $${idx} OR client_name ILIKE $${idx} OR description ILIKE $${idx})`;
+      sql += ` AND (m.title ILIKE $${idx} OR m.client_name ILIKE $${idx} OR m.description ILIKE $${idx})`;
       params.push(`%${search}%`); idx++;
     }
 
-    sql += ' ORDER BY created_at DESC';
+    sql += ' ORDER BY m.created_at DESC';
     const result = await query(sql, params);
     return result.rows;
   },
 
   getById: async (id) => {
     await ensureMissionsSchema();
-    const result = await query('SELECT * FROM missions WHERE id = $1', [id]);
+    const result = await query(`${paymentTotalsSql} WHERE m.id = $1`, [id]);
     return result.rows[0];
   },
 
@@ -146,7 +176,7 @@ export const MissionModel = {
       budget, currency,
       acompte_percent,
       category, tags, notes,
-      quote_id, finance_id, client_id,
+      quote_id, finance_id, client_id, tax_rate,
       acompte_paid, acompte_date, acompte_finance_id,
       final_paid, final_date, final_finance_id,
     } = data;
@@ -168,9 +198,9 @@ export const MissionModel = {
         acompte_paid, acompte_date, acompte_finance_id,
         final_paid, final_date, final_finance_id,
         category, tags, notes,
-        quote_id, finance_id, client_id
+        quote_id, finance_id, client_id, tax_rate
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
       RETURNING *
     `;
 
@@ -191,11 +221,12 @@ export const MissionModel = {
       tags && tags.length > 0 ? tags : null,
       notes || null,
       quote_id || null, finance_id || null, client_id || null,
+      parseFloat(tax_rate ?? 0) || 0,
     ]);
 
     const mission = result.rows[0];
     await MissionModel.seedDefaultStages(mission.id);
-    return mission;
+    return MissionModel.getById(mission.id);
   },
 
   // ─── Mise à jour générale ──────────────────────────────────────
@@ -228,7 +259,8 @@ export const MissionModel = {
     const setClause = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
 
     const result = await query(`UPDATE missions SET ${setClause} WHERE id = $1 RETURNING *`, [id, ...values]);
-    return result.rows[0];
+    if (!result.rows[0]) return null;
+    return MissionModel.getById(id);
   },
 
   // ─── Progression rapide ───────────────────────────────────────
@@ -255,9 +287,47 @@ export const MissionModel = {
              SET final_paid = TRUE, final_date = $2, final_finance_id = $3
              WHERE id = $1 RETURNING *`;
     }
-    const result = await query(sql, [id, date || new Date(), finance_id || null]);
+    await query(sql, [id, date || new Date(), finance_id || null]);
+    return MissionModel.getById(id);
+  },
+
+  listPayments: async (missionId) => {
+    await ensureMissionsSchema();
+    const result = await query(
+      `SELECT p.*, c.name AS cash_account_name, c.kind AS cash_kind, a.code AS account_code
+       FROM mission_payments p
+       LEFT JOIN accounting_cash_accounts c ON c.id = p.cash_account_id
+       LEFT JOIN accounting_accounts a ON a.id = c.account_id
+       WHERE p.mission_id = $1
+       ORDER BY p.payment_date ASC, p.id ASC`,
+      [missionId]
+    );
+    return result.rows;
+  },
+
+  addPayment: async (data) => {
+    await ensureMissionsSchema();
+    const result = await query(
+      `INSERT INTO mission_payments
+        (mission_id, amount, payment_date, cash_account_id, kind, finance_id, accounting_entry_id, label)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING *`,
+      [
+        data.mission_id,
+        data.amount,
+        data.date || data.payment_date || new Date(),
+        data.cash_account_id || null,
+        data.kind || 'installment',
+        data.finance_id || null,
+        data.accounting_entry_id || null,
+        data.label || null
+      ]
+    );
     return result.rows[0];
   },
+
+  paidTotal: (mission) => money(mission?.paid_total),
+  remainingOf: (mission) => money(mission?.remaining ?? (Number(mission?.budget || 0) - Number(mission?.paid_total || 0))),
 
   // ─── Suppression ──────────────────────────────────────────────
 

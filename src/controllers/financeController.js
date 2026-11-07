@@ -1,6 +1,6 @@
 import { FinanceModel } from '../models/financeModel.js';
 import { MissionModel } from '../models/missionModel.js';
-import { handleFinanceDelete, postFinanceTransaction, postQuoteReceipt, syncFinanceAccounting } from '../services/transactionPosting.js';
+import { handleFinanceDelete, postFinanceTransaction, postMissionBalance, postQuoteReceipt, syncFinanceAccounting } from '../services/transactionPosting.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -246,17 +246,24 @@ export const acceptQuote = async (req, res) => {
       cash_account_id: cashAccountId
     });
 
+    const fullyPaid = percent >= 100;
     let posted = transaction;
     try {
-      posted = await postQuoteReceipt(transaction, {
-        actorId: req.actor?.id,
-        cashAccountId
-      });
+      posted = fullyPaid
+        ? await postMissionBalance(transaction, {
+          actorId: req.actor?.id,
+          cashAccountId,
+          missionTtc: quoteTtc,
+          taxRate: quote.tax_rate,
+          advancesTtc: 0
+        })
+        : await postQuoteReceipt(transaction, {
+          actorId: req.actor?.id,
+          cashAccountId
+        });
     } catch (error) {
       posted = { ...transaction, accounting_status: 'error', accounting_error: error.message, accounting_failed: true };
     }
-
-    const fullyPaid = percent >= 100;
     const mission = await MissionModel.create({
       title: quote.description,
       description: quote.prestations_details || null,
@@ -275,6 +282,7 @@ export const acceptQuote = async (req, res) => {
       quote_id: quote.id,
       finance_id: transaction.id,
       client_id: quote.client_id,
+      tax_rate: quote.tax_rate || 0,
       acompte_percent: percent,
       acompte_paid: true,
       acompte_date: today,
@@ -282,6 +290,18 @@ export const acceptQuote = async (req, res) => {
       final_paid: fullyPaid,
       final_date: fullyPaid ? today : null,
       final_finance_id: fullyPaid ? transaction.id : null,
+    });
+
+    const paidTtc = Number(posted.total_amount || posted.amount) || (paidHt * (1 + Number(quote.tax_rate || 0) / 100));
+    await MissionModel.addPayment({
+      mission_id: mission.id,
+      amount: paidTtc,
+      date: today,
+      cash_account_id: cashAccountId,
+      kind: fullyPaid ? 'balance' : 'installment',
+      finance_id: transaction.id,
+      accounting_entry_id: posted.accounting_entry_id,
+      label: transaction.description
     });
 
     await MissionModel.addUpdate({

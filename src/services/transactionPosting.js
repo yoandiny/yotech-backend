@@ -146,10 +146,6 @@ export const resolveQuoteReceiptPlan = async (transaction, cashAccountId) => {
   if (!advance) {
     throw new AccountingError('Le compte 4191 (acomptes reçus) est absent du plan comptable.');
   }
-  if (tax > 0 && !accountByCode(accounts, ['4457', '445'])) {
-    throw new AccountingError('TVA présente mais le compte 4457 (TVA collectée) n’est pas configuré.');
-  }
-  const vat = tax > 0 ? accountByCode(accounts, ['4457', '445']) : null;
 
   const journals = await AccountingModel.listJournals();
   const journal = journals.find((item) => item.code === (cash.kind === 'cash' ? 'CAI' : 'BQ'))
@@ -170,22 +166,12 @@ export const resolveQuoteReceiptPlan = async (transaction, cashAccountId) => {
     {
       account_id: advance.id,
       debit: 0,
-      credit: tax > 0 ? ht : ttc,
+      credit: ttc,
       label,
       party_type: transaction.client_id ? 'client' : null,
       party_id: transaction.client_id || null
     }
   ];
-  if (tax > 0 && vat) {
-    lines.push({
-      account_id: vat.id,
-      debit: 0,
-      credit: tax,
-      label: 'TVA collectée sur acompte',
-      party_type: null,
-      party_id: null
-    });
-  }
   validateLines(lines);
   return {
     source: 'quote',
@@ -193,7 +179,7 @@ export const resolveQuoteReceiptPlan = async (transaction, cashAccountId) => {
     journal,
     lines,
     label,
-    rationale: `Acompte reçu sur ${cash.name} (${cash.account_code}) / ${advance.code} ${advance.name}`
+    rationale: `Acompte TTC reçu sur ${cash.name} (${cash.account_code}) / ${advance.code}`
   };
 };
 
@@ -230,6 +216,119 @@ export const postQuoteReceipt = async (transaction, { actorId, cashAccountId } =
   } catch (error) {
     if (error.status !== 409) {
       await persistStatus(transaction.id, true, cashAccountId, 'error', null, error.message, { source: 'quote' });
+    }
+    throw error;
+  }
+};
+
+const postSourceEntry = async (transaction, plan, { actorId, cashAccountId, reference }) => {
+  const existing = await AccountingModel.findEntryBySource(SOURCE, transaction.id);
+  if (existing && (existing.status === 'posted' || existing.status === 'locked')) {
+    throw new AccountingError('Cet encaissement est déjà lié à une écriture comptabilisée.', 409);
+  }
+  const draft = await AccountingModel.saveDraft({
+    id: existing?.status === 'draft' ? existing.id : null,
+    journal_id: plan.journal.id,
+    entry_date: transaction.date_transaction || transaction.date,
+    reference,
+    label: plan.label,
+    source_type: SOURCE,
+    source_id: transaction.id,
+    source_reference: reference,
+    lines: plan.lines
+  }, actorId);
+  const posted = await AccountingModel.postEntry(draft.id, actorId);
+  return persistStatus(
+    transaction.id,
+    true,
+    cashAccountId || plan.cash?.id,
+    'posted',
+    posted.id,
+    null,
+    { source: plan.source, rationale: plan.rationale }
+  );
+};
+
+export const resolveMissionBalancePlan = async (transaction, { cashAccountId, missionTtc, taxRate, advancesTtc }) => {
+  await AccountingModel.ensure();
+  const cashAccounts = await AccountingModel.listCashAccounts();
+  const cash = cashAccounts.find((item) => Number(item.id) === Number(cashAccountId) && item.is_active !== false);
+  if (!cash) {
+    throw new AccountingError('Indiquez le moyen de paiement (banque, caisse ou autre compte de trésorerie).');
+  }
+
+  const payment = money(transaction.total_amount || transaction.amount);
+  const invoiceTtc = money(missionTtc);
+  const rate = Number(taxRate) || 0;
+  const invoiceHt = rate > 0 ? money(invoiceTtc / (1 + rate / 100)) : invoiceTtc;
+  const invoiceVat = money(invoiceTtc - invoiceHt);
+  const advances = money(advancesTtc);
+  if (payment <= 0) throw new AccountingError('Le montant du solde doit être supérieur à zéro.');
+  if (money(payment + advances) !== invoiceTtc) {
+    throw new AccountingError(
+      `Le solde plus les acomptes (${money(payment + advances)}) doivent égaler le budget TTC (${invoiceTtc}).`
+    );
+  }
+
+  const accounts = await AccountingModel.listAccounts({ postable: true });
+  const client = accountByCode(accounts, ['411']);
+  const revenue = accountByCode(accounts, ['706', '704', '705']);
+  const vat = invoiceVat > 0 ? accountByCode(accounts, ['4457', '445']) : null;
+  const advance = advances > 0 ? accountByCode(accounts, ['4191', '419']) : null;
+  if (!client) throw new AccountingError('Le compte 411 Clients est absent du plan comptable.');
+  if (!revenue) throw new AccountingError('Le compte 706 Prestations de services est absent du plan comptable.');
+  if (invoiceVat > 0 && !vat) throw new AccountingError('Le compte 4457 TVA collectée est absent du plan comptable.');
+  if (advances > 0 && !advance) throw new AccountingError('Le compte 4191 (acomptes reçus) est absent du plan comptable.');
+
+  const journals = await AccountingModel.listJournals();
+  const journal = journals.find((item) => item.code === (cash.kind === 'cash' ? 'CAI' : 'BQ'))
+    || journals.find((item) => item.code === 'OD')
+    || journals[0];
+  if (!journal) throw new AccountingError('Aucun journal comptable n’est configuré.');
+
+  const label = transaction.description || 'Solde mission';
+  const party = transaction.client_id ? { party_type: 'client', party_id: transaction.client_id } : { party_type: null, party_id: null };
+  const lines = [
+    { account_id: client.id, debit: invoiceTtc, credit: 0, label: 'Facture mission', ...party },
+    { account_id: revenue.id, debit: 0, credit: invoiceHt, label: 'Prestations de services', ...party }
+  ];
+  if (invoiceVat > 0) {
+    lines.push({ account_id: vat.id, debit: 0, credit: invoiceVat, label: 'TVA collectée', party_type: null, party_id: null });
+  }
+  lines.push({ account_id: cash.account_id, debit: payment, credit: 0, label, party_type: null, party_id: null });
+  lines.push({ account_id: client.id, debit: 0, credit: payment, label, ...party });
+  if (advances > 0) {
+    lines.push({ account_id: advance.id, debit: advances, credit: 0, label: 'Imputation des acomptes', ...party });
+    lines.push({ account_id: client.id, debit: 0, credit: advances, label: 'Imputation des acomptes', ...party });
+  }
+  validateLines(lines);
+  return {
+    source: 'mission-balance',
+    cash,
+    journal,
+    lines,
+    label,
+    rationale: `Facture ${invoiceTtc} : 411 / 706${invoiceVat ? ' / 4457' : ''} ; solde ${payment} ; acomptes ${advances}`
+  };
+};
+
+export const postMissionInstallment = async (transaction, { actorId, cashAccountId } = {}) => {
+  return postQuoteReceipt(transaction, { actorId, cashAccountId });
+};
+
+export const postMissionBalance = async (transaction, { actorId, cashAccountId, missionTtc, taxRate, advancesTtc } = {}) => {
+  await AccountingModel.ensure();
+  await ensureFinanceColumns();
+  try {
+    const plan = await resolveMissionBalancePlan(transaction, { cashAccountId, missionTtc, taxRate, advancesTtc });
+    return postSourceEntry(transaction, plan, {
+      actorId,
+      cashAccountId,
+      reference: transaction.quote_number || `MIS-${transaction.id}`
+    });
+  } catch (error) {
+    if (error.status !== 409) {
+      await persistStatus(transaction.id, true, cashAccountId, 'error', null, error.message, { source: 'mission-balance' });
     }
     throw error;
   }
