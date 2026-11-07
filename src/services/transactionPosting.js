@@ -419,7 +419,15 @@ export const syncFinanceAccounting = async (transaction, { autoPost, actorId } =
 export const handleFinanceDelete = async (transaction, actorId) => {
   if (!transaction) return;
   await AccountingModel.ensure();
-  const existing = await AccountingModel.findEntryBySource(SOURCE, transaction.id);
+  let existing = null;
+  try {
+    existing = await AccountingModel.findEntryBySource(SOURCE, transaction.id);
+  } catch {
+    existing = null;
+  }
+  if (!existing && transaction.accounting_entry_id) {
+    existing = await AccountingModel.getEntry(transaction.accounting_entry_id);
+  }
   if (!existing) return;
   if (existing.status === 'draft') {
     await AccountingModel.deleteDraft(existing.id);

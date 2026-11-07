@@ -27,6 +27,16 @@ let accountingReady = false;
 
 const run = (client, text, params) => (client || { query }).query(text, params);
 
+const asSourceId = (value) => (value == null || value === '' ? null : String(value));
+
+const asUserId = (value) => {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value;
+  const text = String(value);
+  if (/^\d+$/.test(text)) return Number(text);
+  return null;
+};
+
 export const ensureAccountingSchema = async () => {
   if (accountingReady) return;
 
@@ -165,7 +175,7 @@ export const ensureAccountingSchema = async () => {
       label TEXT NOT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'draft',
       source_type VARCHAR(40),
-      source_id INTEGER,
+      source_id VARCHAR(64),
       source_reference VARCHAR(80),
       reversal_of_id INTEGER REFERENCES accounting_entries(id) ON DELETE SET NULL,
       created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -175,6 +185,8 @@ export const ensureAccountingSchema = async () => {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await query(`ALTER TABLE accounting_entries ALTER COLUMN source_id TYPE VARCHAR(64) USING source_id::text`);
 
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS accounting_entries_source_unique
@@ -446,7 +458,7 @@ const audit = async (client, { entity_type, entity_id, action, actor_id, details
   await run(client, `
     INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_id, details)
     VALUES ($1,$2,$3,$4,$5)
-  `, [entity_type, entity_id || null, action, actor_id || null, details ? JSON.stringify(details) : null]);
+  `, [entity_type, entity_id || null, action, asUserId(actor_id), details ? JSON.stringify(details) : null]);
 };
 
 const mapEntry = (row, lines = []) => {
@@ -504,7 +516,7 @@ const insertLines = async (client, entryId, lines) => {
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
     `, [
       entryId, lineNo++, line.account_id, debit, credit,
-      line.label || null, line.party_type || null, line.party_id || null
+      line.label || null, line.party_type || null, asUserId(line.party_id)
     ]);
   }
 };
@@ -766,7 +778,7 @@ export const AccountingModel = {
            WHERE id=$9`,
           [
             period.id, data.journal_id, data.entry_date, data.reference || null, data.label,
-            data.source_type || null, data.source_id || null, data.source_reference || null, entryId
+            data.source_type || null, asSourceId(data.source_id), data.source_reference || null, entryId
           ]
         );
         await client.query('DELETE FROM accounting_entry_lines WHERE entry_id = $1', [entryId]);
@@ -778,7 +790,7 @@ export const AccountingModel = {
            RETURNING id`,
           [
             period.id, data.journal_id, data.entry_date, data.reference || null, data.label,
-            data.source_type || null, data.source_id || null, data.source_reference || null, actorId || null
+            data.source_type || null, asSourceId(data.source_id), data.source_reference || null, asUserId(actorId)
           ]
         );
         entryId = inserted.rows[0].id;
@@ -814,7 +826,7 @@ export const AccountingModel = {
         `UPDATE accounting_entries SET
           status='posted', entry_number=$1, posted_by=$2, posted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
          WHERE id=$3`,
-        [entryNumber, actorId || null, id]
+        [entryNumber, asUserId(actorId), id]
       );
       await audit(client, { entity_type: 'entry', entity_id: id, action: 'post', actor_id: actorId, details: { entry_number: entryNumber } });
       await client.query('COMMIT');
@@ -851,7 +863,7 @@ export const AccountingModel = {
         [
           period.id, original.journal_id, reversalDate, entryNumber,
           original.reference, label || `Contre-passation de ${original.entry_number}`,
-          original.id, actorId || null
+          original.id, asUserId(actorId)
         ]
       );
       await insertLines(client, inserted.rows[0].id, reversedLines(original.lines));
@@ -1134,9 +1146,9 @@ export const AccountingModel = {
     await ensureAccountingSchema();
     const result = await query(
       `SELECT * FROM accounting_entries
-       WHERE source_type = $1 AND source_id = $2 AND status IN ('draft','posted','locked')
+       WHERE source_type = $1 AND source_id::text = $2 AND status IN ('draft','posted','locked')
        ORDER BY id DESC LIMIT 1`,
-      [sourceType, sourceId]
+      [sourceType, asSourceId(sourceId)]
     );
     if (!result.rows[0]) return null;
     return AccountingModel.getEntry(result.rows[0].id);

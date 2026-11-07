@@ -16,7 +16,7 @@ export const ensureContractsTable = async () => {
       title VARCHAR(255) NOT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'draft',
       client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
-      quote_id INTEGER,
+      quote_id VARCHAR(64),
       client_name VARCHAR(255),
       client_type VARCHAR(20) DEFAULT 'particulier',
       client_address TEXT,
@@ -37,6 +37,8 @@ export const ensureContractsTable = async () => {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await query(`ALTER TABLE contracts ALTER COLUMN quote_id TYPE VARCHAR(64) USING quote_id::text`);
 
   contractsReady = true;
 };

@@ -47,10 +47,11 @@ export const ensureMissionsSchema = async () => {
     )
   `);
 
-  await query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS quote_id INTEGER`);
+  await query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS quote_id VARCHAR(64)`);
   await query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS finance_id VARCHAR(64)`);
   await query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS client_id INTEGER`);
   await query(`ALTER TABLE missions ADD COLUMN IF NOT EXISTS tax_rate DECIMAL(5, 2) DEFAULT 0`);
+  await query(`ALTER TABLE missions ALTER COLUMN quote_id TYPE VARCHAR(64) USING quote_id::text`);
   await query(`ALTER TABLE missions ALTER COLUMN finance_id TYPE VARCHAR(64) USING finance_id::text`);
   await query(`ALTER TABLE missions ALTER COLUMN acompte_finance_id TYPE VARCHAR(64) USING acompte_finance_id::text`);
   await query(`ALTER TABLE missions ALTER COLUMN final_finance_id TYPE VARCHAR(64) USING final_finance_id::text`);
