@@ -1154,17 +1154,23 @@ export const AccountingModel = {
     return AccountingModel.getEntry(result.rows[0].id);
   },
 
-  pendingFinanceTransactions: async () => {
+  pendingFinanceTransactions: async (period) => {
     await ensureAccountingSchema();
+    const current = period
+      || (await query(`SELECT * FROM accounting_periods WHERE status = 'open' ORDER BY start_date DESC LIMIT 1`)).rows[0]
+      || (await query('SELECT * FROM accounting_periods ORDER BY start_date DESC LIMIT 1')).rows[0];
+    if (!current) return [];
     const result = await query(`
       SELECT id, description, amount, total_amount, type_transaction, category, date_transaction,
              accounting_status, accounting_error, auto_post, accounting_entry_id
       FROM finances
       WHERE COALESCE(is_quote, FALSE) = FALSE
         AND COALESCE(accounting_status, 'unposted') IN ('unposted', 'error')
+        AND date_transaction::date >= $1::date
+        AND date_transaction::date <= $2::date
       ORDER BY date_transaction DESC, id DESC
       LIMIT 50
-    `);
+    `, [current.start_date, current.end_date]);
     return result.rows;
   },
 
@@ -1178,7 +1184,7 @@ export const AccountingModel = {
       AccountingModel.statements(filters),
       AccountingModel.listEntries({ period_id: period?.id }),
       AccountingModel.treasury(filters),
-      AccountingModel.pendingFinanceTransactions()
+      AccountingModel.pendingFinanceTransactions(period)
     ]);
     const cashBalance = cash.reduce((sum, item) => money(sum + Number(item.balance || 0)), 0);
     return {
