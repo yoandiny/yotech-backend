@@ -1,6 +1,8 @@
 import { query } from '../config/db.js';
 import { ClientModel, ensureClientsTable } from './clientModel.js';
 
+const asQuote = (row) => (row ? { ...row, is_quote: true, id_transaction: row.id } : row);
+
 const ensureQuotesTableExists = async () => {
   await query(`
     CREATE TABLE IF NOT EXISTS quotes (
@@ -525,7 +527,7 @@ export const FinanceModel = {
   getQuoteById: async (id) => {
     await ensureQuotesTableExists();
     const result = await query('SELECT * FROM quotes WHERE id = $1', [id]);
-    return result.rows[0];
+    return asQuote(result.rows[0]);
   },
 
   getQuoteByNumber: async (quoteNumber) => {
@@ -595,7 +597,7 @@ export const FinanceModel = {
       quote_number, quote_status, prestations_details, general_conditions, currency,
       category || null, linkedClient?.id || null
     ]);
-    return result.rows[0];
+    return asQuote(result.rows[0]);
   },
 
   updateQuote: async (id, data) => {
@@ -682,7 +684,7 @@ export const FinanceModel = {
       quote_number, quote_status, prestations_details, general_conditions, currency,
       category || null, linkedClient?.id || null, id
     ]);
-    return result.rows[0];
+    return asQuote(result.rows[0]);
   },
 
   migrateQuotesFromFinances: async () => {

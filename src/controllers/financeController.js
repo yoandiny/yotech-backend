@@ -77,10 +77,13 @@ export const getIncomeByCategory = async (req, res) => {
 
 
 
+const isQuotePayload = (transaction, body) =>
+  Boolean(transaction?.is_quote || body?.is_quote);
+
 export const createTransaction = async (req, res) => {
   try {
     const transaction = await FinanceModel.addTransaction(req.body);
-    if (transaction?.is_quote) {
+    if (isQuotePayload(transaction, req.body)) {
       return res.status(201).json(transaction);
     }
     const synced = await syncFinanceAccounting(
@@ -113,7 +116,7 @@ export const updateTransaction = async (req, res) => {
     if (!transaction) {
       return res.status(404).json({ error: 'Transaction introuvable' });
     }
-    if (transaction.is_quote) return res.json(transaction);
+    if (isQuotePayload(transaction, req.body)) return res.json(transaction);
     const synced = await syncFinanceAccounting(
       { ...transaction, cash_account_id: req.body.cash_account_id || transaction.cash_account_id },
       { autoPost: req.body.auto_post !== false && req.body.auto_post !== 'false', actorId: req.actor?.id }
