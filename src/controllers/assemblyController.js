@@ -2,6 +2,7 @@ import { AssemblyModel } from '../models/assemblyModel.js';
 import { FinanceModel } from '../models/financeModel.js';
 import { AssociateModel } from '../models/associateModel.js';
 import { applyLegalNamesToAssembly, hydratePeople, listManagers } from '../services/peopleNames.js';
+import { suggestAssemblyText } from '../services/assemblyDrafting.js';
 
 export const AssemblyController = {
   getAll: async (req, res) => {
@@ -11,6 +12,17 @@ export const AssemblyController = {
     } catch (error) {
       console.error('Error listing assemblies:', error);
       res.status(500).json({ error: 'Internal Server Error' });
+    }
+  },
+
+  suggestText: async (req, res) => {
+    try {
+      const result = await suggestAssemblyText(req.body || {});
+      res.json(result);
+    } catch (error) {
+      console.error('Error suggesting assembly text:', error);
+      if (error.status) return res.status(error.status).json({ error: error.message });
+      res.status(500).json({ error: error.message || 'Internal Server Error' });
     }
   },
 

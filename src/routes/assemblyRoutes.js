@@ -4,6 +4,7 @@ import { AssemblyController } from '../controllers/assemblyController.js';
 const router = express.Router();
 
 router.get('/number', AssemblyController.getNumber);
+router.post('/suggest-text', AssemblyController.suggestText);
 router.get('/', AssemblyController.getAll);
 router.post('/', AssemblyController.create);
 router.get('/:id/pdf-data', AssemblyController.getPdfData);
