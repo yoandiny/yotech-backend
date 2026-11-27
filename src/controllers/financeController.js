@@ -1,6 +1,7 @@
 import { FinanceModel } from '../models/financeModel.js';
 import { MissionModel } from '../models/missionModel.js';
 import { handleFinanceDelete, postFinanceTransaction, postMissionBalance, postQuoteReceipt, syncFinanceAccounting } from '../services/transactionPosting.js';
+import { suggestPrestationsList } from '../services/quoteDrafting.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -398,6 +399,17 @@ export const generateInvoiceNumber = async (req, res) => {
   } catch (error) {
     console.error('Error generating invoice number:', error);
     res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+export const suggestQuotePrestations = async (req, res) => {
+  try {
+    const result = await suggestPrestationsList(req.body || {});
+    res.json(result);
+  } catch (error) {
+    console.error('Error suggesting quote prestations:', error);
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 };
 

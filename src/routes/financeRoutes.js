@@ -13,6 +13,7 @@ import {
   updateSettings,
   generateInvoiceNumber,
   generateQuoteNumber,
+  suggestQuotePrestations,
   invoiceTransaction,
   generateInvoicePDF,
   getInvoiceFormData,
@@ -40,6 +41,7 @@ router.get('/settings', getSettings);
 router.put('/settings', updateSettings);
 router.get('/invoice-number', generateInvoiceNumber);
 router.get('/quote-number', generateQuoteNumber);
+router.post('/quotes/suggest-prestations', suggestQuotePrestations);
 router.post('/quotes/:id/accept', acceptQuote);
 router.post('/quotes/:id/duplicate', duplicateQuote);
 router.delete('/quotes/:id', deleteQuote);
