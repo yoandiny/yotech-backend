@@ -1,6 +1,6 @@
 import { AccountingModel } from '../models/accountingModel.js';
 import { AccountingError, money, totalsOf, validateLines } from './accountingEngine.js';
-import { completeJson, isOpenRouterConfigured, openRouterConfig } from './openrouter.js';
+import { completeJson, isDeepSeekConfigured, deepSeekConfig } from './deepseek.js';
 
 const SYSTEM_PROMPT = `Tu es un expert-comptable du Plan Comptable Général Madagascar 2005 (PCG 2005).
 À partir du contexte d'une transaction de trésorerie, tu proposes une écriture en partie double.
@@ -28,10 +28,10 @@ Schéma JSON :
 }`;
 
 export const accountingAiStatus = () => {
-  const config = openRouterConfig();
+  const config = deepSeekConfig();
   return {
-    enabled: isOpenRouterConfigured(),
-    provider: 'openrouter',
+    enabled: isDeepSeekConfigured(),
+    provider: 'deepseek',
     model: config.model
   };
 };
@@ -132,7 +132,7 @@ export const hydrateSuggestion = (suggestion, { accounts, cashAccounts, journals
     lines,
     label: transaction.description || 'Transaction',
     rationale: suggestion.rationale || '',
-    model: openRouterConfig().model
+    model: deepSeekConfig().model
   };
 };
 
@@ -144,7 +144,7 @@ const compactAccounts = (accounts) => accounts.map((account) => ({
 }));
 
 export const suggestValidatedPlan = async (transaction) => {
-  if (!isOpenRouterConfigured()) return null;
+  if (!isDeepSeekConfigured()) return null;
   const { accounts, cashAccounts, journals } = await catalogs();
   const { ht, tax, ttc } = amountsOf(transaction);
   const user = JSON.stringify({
@@ -181,7 +181,7 @@ export const previewPostingSuggestion = async (transaction) => {
   try {
     const plan = await suggestValidatedPlan(transaction);
     if (!plan) {
-      return { ...status, available: false, source: null, message: 'IA désactivée ou clé OpenRouter absente.' };
+      return { ...status, available: false, source: null, message: 'IA désactivée ou clé DeepSeek absente.' };
     }
     return {
       ...status,

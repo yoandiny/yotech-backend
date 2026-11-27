@@ -1,47 +1,43 @@
-const DEFAULT_MODEL = 'openai/gpt-4o-mini';
-const DEFAULT_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const DEFAULT_MODEL = 'deepseek-chat';
+const DEFAULT_URL = 'https://api.deepseek.com/chat/completions';
 
 let transport = null;
 
 const defaultTransport = async (url, options) => fetch(url, options);
 
-export const setOpenRouterTransport = (fn) => {
+export const setDeepSeekTransport = (fn) => {
   transport = fn;
 };
 
-export const openRouterConfig = () => ({
-  apiKey: process.env.OPENROUTER_API_KEY || '',
-  model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
-  url: process.env.OPENROUTER_URL || DEFAULT_URL,
-  siteUrl: process.env.OPENROUTER_SITE_URL || 'https://yotech.mg',
-  appName: process.env.OPENROUTER_APP_NAME || 'YoTech ERP',
+export const deepSeekConfig = () => ({
+  apiKey: process.env.DEEPSEEK_API_KEY || '',
+  model: process.env.DEEPSEEK_MODEL || DEFAULT_MODEL,
+  url: process.env.DEEPSEEK_URL || DEFAULT_URL,
   enabled: process.env.ACCOUNTING_AI !== 'false'
 });
 
-export const isOpenRouterConfigured = () => {
-  const config = openRouterConfig();
+export const isDeepSeekConfigured = () => {
+  const config = deepSeekConfig();
   if (!config.enabled || !config.apiKey) return false;
   if (process.env.NODE_TEST_CONTEXT && !transport) return false;
   return true;
 };
 
 export const completeJson = async ({ system, user, temperature = 0 } = {}) => {
-  const config = openRouterConfig();
+  const config = deepSeekConfig();
   if (!config.apiKey) {
-    throw new Error('OPENROUTER_API_KEY manquante.');
+    throw new Error('DEEPSEEK_API_KEY manquante.');
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(process.env.OPENROUTER_TIMEOUT_MS || 20000));
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.DEEPSEEK_TIMEOUT_MS || 20000));
   try {
     const send = transport || defaultTransport;
     const response = await send(config.url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': config.siteUrl,
-        'X-Title': config.appName
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         model: config.model,
@@ -57,12 +53,12 @@ export const completeJson = async ({ system, user, temperature = 0 } = {}) => {
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
-      throw new Error(`OpenRouter ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
+      throw new Error(`DeepSeek ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
     }
 
     const payload = await response.json();
     const content = payload?.choices?.[0]?.message?.content;
-    if (!content) throw new Error('Réponse OpenRouter vide.');
+    if (!content) throw new Error('Réponse DeepSeek vide.');
     return content;
   } finally {
     clearTimeout(timeout);

@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestDb } from './setup.js';
 import { AccountingError } from '../src/services/accountingEngine.js';
-import { setOpenRouterTransport } from '../src/services/openrouter.js';
+import { setDeepSeekTransport } from '../src/services/deepseek.js';
 
 let container;
 let pool;
@@ -82,10 +82,10 @@ test('recette et dépense auto-comptabilisées, manuel, doublon et config incomp
   assert.ok(failed.accounting_error);
 });
 
-const mockOpenRouter = (payload) => {
-  process.env.OPENROUTER_API_KEY = 'test-key';
+const mockDeepSeek = (payload) => {
+  process.env.DEEPSEEK_API_KEY = 'test-key';
   process.env.ACCOUNTING_AI = 'true';
-  setOpenRouterTransport(async () => ({
+  setDeepSeekTransport(async () => ({
     ok: true,
     async json() {
       return { choices: [{ message: { content: JSON.stringify(payload) } }] };
@@ -93,8 +93,8 @@ const mockOpenRouter = (payload) => {
   }));
 };
 
-test('OpenRouter propose les comptes, sinon repli sur la règle', async () => {
-  mockOpenRouter({
+test('DeepSeek propose les comptes, sinon repli sur la règle', async () => {
+  mockDeepSeek({
     journal_code: 'BQ',
     rationale: 'Vente de services informatiques',
     lines: [
@@ -115,7 +115,7 @@ test('OpenRouter propose les comptes, sinon repli sur la règle', async () => {
   const codes = entry.lines.map((line) => line.account_code).sort();
   assert.deepEqual(codes, ['512', '706']);
 
-  mockOpenRouter({ lines: [{ account_code: '999', debit: 25000, credit: 0 }] });
+  mockDeepSeek({ lines: [{ account_code: '999', debit: 25000, credit: 0 }] });
   const fallback = await insertFinance({
     description: 'Prestation web',
     amount: 25000,
@@ -126,8 +126,8 @@ test('OpenRouter propose les comptes, sinon repli sur la règle', async () => {
   assert.equal(postedFallback.accounting_status, 'posted');
   assert.equal(postedFallback.accounting_source, 'rule');
 
-  setOpenRouterTransport(null);
-  delete process.env.OPENROUTER_API_KEY;
+  setDeepSeekTransport(null);
+  delete process.env.DEEPSEEK_API_KEY;
 });
 
 test('acompte devis : débit du moyen de paiement, crédit 4191', async () => {
