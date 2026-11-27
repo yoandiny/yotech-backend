@@ -4,6 +4,8 @@ import { ContractController } from '../controllers/contractController.js';
 const router = express.Router();
 
 router.get('/number', ContractController.getNumber);
+router.get('/types', ContractController.listTypes);
+router.post('/suggest-structure', ContractController.suggestStructure);
 router.get('/', ContractController.getAll);
 router.post('/', ContractController.create);
 router.get('/:id/pdf-data', ContractController.getPdfData);

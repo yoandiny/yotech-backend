@@ -1,5 +1,8 @@
 import { ContractModel } from '../models/contractModel.js';
 import { FinanceModel } from '../models/financeModel.js';
+import { MissionModel } from '../models/missionModel.js';
+import { CONTRACT_TYPES } from '../data/contractTypes.js';
+import { suggestContractStructure } from '../services/contractDrafting.js';
 
 export const ContractController = {
   getAll: async (req, res) => {
@@ -9,6 +12,26 @@ export const ContractController = {
     } catch (error) {
       console.error('Error listing contracts:', error);
       res.status(500).json({ error: 'Internal Server Error' });
+    }
+  },
+
+  listTypes: async (_req, res) => {
+    res.json(CONTRACT_TYPES);
+  },
+
+  suggestStructure: async (req, res) => {
+    try {
+      const { template_id, answers, mission_id } = req.body || {};
+      let mission = null;
+      if (mission_id) {
+        mission = await MissionModel.getById(mission_id);
+      }
+      const result = await suggestContractStructure({ template_id, answers, mission });
+      res.json(result);
+    } catch (error) {
+      console.error('Error suggesting contract structure:', error);
+      if (error.status) return res.status(error.status).json({ error: error.message });
+      res.status(500).json({ error: error.message || 'Internal Server Error' });
     }
   },
 

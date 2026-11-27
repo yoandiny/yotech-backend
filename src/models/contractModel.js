@@ -33,12 +33,16 @@ export const ensureContractsTable = async () => {
       currency VARCHAR(3) DEFAULT 'MGA',
       category VARCHAR(100),
       answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+      articles JSONB NOT NULL DEFAULT '[]'::jsonb,
+      mission_id INTEGER,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
   await query(`ALTER TABLE contracts ALTER COLUMN quote_id TYPE VARCHAR(64) USING quote_id::text`);
+  await query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS articles JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await query(`ALTER TABLE contracts ADD COLUMN IF NOT EXISTS mission_id INTEGER`);
 
   contractsReady = true;
 };
@@ -87,6 +91,8 @@ const normalizePayload = async (data = {}) => {
     total_amount: totalAmount,
     currency: data.currency || answers.currency || 'MGA',
     category: data.category || answers.category || null,
+    mission_id: data.mission_id || answers.mission_id || null,
+    articles: Array.isArray(data.articles) ? data.articles : (Array.isArray(answers.articles) ? answers.articles : []),
     answers: {
       ...answers,
       title,
@@ -158,9 +164,9 @@ export const ContractModel = {
         contract_number, template_id, title, status, client_id, quote_id,
         client_name, client_type, client_address, client_nif, client_stat,
         client_email, client_phone, start_date, end_date,
-        amount, tax_rate, tax_amount, total_amount, currency, category, answers
+        amount, tax_rate, tax_amount, total_amount, currency, category, answers, articles, mission_id
       ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24
       ) RETURNING *`,
       [
         contractNumber,
@@ -184,7 +190,9 @@ export const ContractModel = {
         payload.total_amount,
         payload.currency,
         payload.category,
-        payload.answers
+        payload.answers,
+        payload.articles || [],
+        payload.mission_id
       ]
     );
     return result.rows[0];
@@ -232,6 +240,8 @@ export const ContractModel = {
         currency = $20,
         category = $21,
         answers = $22,
+        articles = $23,
+        mission_id = $24,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING *`,
@@ -257,7 +267,9 @@ export const ContractModel = {
         payload.total_amount,
         payload.currency,
         payload.category,
-        payload.answers
+        payload.answers,
+        payload.articles || [],
+        payload.mission_id
       ]
     );
     return result.rows[0];
