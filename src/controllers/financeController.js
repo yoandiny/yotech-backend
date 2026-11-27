@@ -101,8 +101,9 @@ export const createTransaction = async (req, res) => {
 
 export const getHistory = async (req, res) => {
   try {
-    const { month, year } = req.query;
-    const history = await FinanceModel.getHistory(month, year);
+    const { month, year, include_archived } = req.query;
+    const includeArchived = include_archived !== 'false' && include_archived !== '0';
+    const history = await FinanceModel.getHistory(month, year, { includeArchived });
     res.json(history);
   } catch (error) {
     console.error('Error fetching history:', error);

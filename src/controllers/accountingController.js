@@ -1,6 +1,7 @@
 import { AccountingModel } from '../models/accountingModel.js';
 import { AccountingError } from '../services/accountingEngine.js';
 import { accountingAiStatus, previewPostingSuggestion } from '../services/accountSuggestion.js';
+import { migrateToCompany } from '../services/companyMigration.js';
 
 const handle = (fn) => async (req, res) => {
   try {
@@ -65,5 +66,6 @@ export const AccountingController = {
   upsertPostingRule: handle((req) => AccountingModel.upsertPostingRule(req.body)),
   pendingTransactions: handle(() => AccountingModel.pendingFinanceTransactions()),
   aiStatus: handle(() => accountingAiStatus()),
-  suggestPosting: handle((req) => previewPostingSuggestion(req.body || {}))
+  suggestPosting: handle((req) => previewPostingSuggestion(req.body || {})),
+  migrateToCompany: handle((req) => migrateToCompany({ ...req.body, actorId: actorId(req) }))
 };

@@ -106,6 +106,8 @@ export const ensureAccountingSchema = async () => {
     )
   `);
 
+  await query(`ALTER TABLE accounting_periods ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN DEFAULT FALSE`);
+
   await query(`
     CREATE TABLE IF NOT EXISTS accounting_journals (
       id SERIAL PRIMARY KEY,
@@ -244,6 +246,15 @@ export const ensureAccountingSchema = async () => {
   await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS accounting_entry_id INTEGER`);
   await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS accounting_error TEXT`);
   await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS cash_account_id INTEGER`);
+  await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE`);
+
+  // Autorise les mouvements de bilan (apport en capital) hors revenus/dépenses.
+  await query(`ALTER TABLE finances DROP CONSTRAINT IF EXISTS finances_type_transaction_check`);
+  await query(`
+    ALTER TABLE finances
+    ADD CONSTRAINT finances_type_transaction_check
+    CHECK (type_transaction IN ('revenu', 'dépense', 'apport'))
+  `);
 
   await seedReferential();
   accountingReady = true;
@@ -725,6 +736,7 @@ export const AccountingModel = {
       params.push(`%${search}%`);
       clauses.push(`(e.entry_number ILIKE $${params.length} OR e.reference ILIKE $${params.length} OR e.label ILIKE $${params.length})`);
     }
+    if (!period_id) clauses.push('COALESCE(p.is_legacy, FALSE) = FALSE');
     const result = await query(`
       SELECT e.*, j.code AS journal_code, j.name AS journal_name, p.name AS period_name,
              u.username AS created_by_name
@@ -897,6 +909,7 @@ export const AccountingModel = {
     };
     if (journal_id) add('e.journal_id = ?', journal_id);
     if (period_id) add('e.period_id = ?', period_id);
+    if (!period_id) clauses.push('COALESCE(p.is_legacy, FALSE) = FALSE');
     if (from) add('e.entry_date >= ?', from);
     if (to) add('e.entry_date <= ?', to);
     const result = await query(`
@@ -905,6 +918,7 @@ export const AccountingModel = {
              a.code AS account_code, a.name AS account_name
       FROM accounting_entries e
       JOIN accounting_journals j ON j.id = e.journal_id
+      JOIN accounting_periods p ON p.id = e.period_id
       JOIN accounting_entry_lines l ON l.entry_id = e.id
       JOIN accounting_accounts a ON a.id = l.account_id
       WHERE ${clauses.join(' AND ')}
@@ -920,6 +934,7 @@ export const AccountingModel = {
     if (!account) throw new AccountingError('Compte introuvable.', 404);
     const clauses = [`e.status IN ('posted','locked')`, 'l.account_id = $1'];
     const params = [account_id];
+    if (!period_id) clauses.push('COALESCE(p.is_legacy, FALSE) = FALSE');
     if (period_id) {
       params.push(period_id);
       clauses.push(`e.period_id = $${params.length}`);
@@ -938,13 +953,16 @@ export const AccountingModel = {
         SELECT COALESCE(SUM(l.debit),0)::numeric AS debit, COALESCE(SUM(l.credit),0)::numeric AS credit
         FROM accounting_entry_lines l
         JOIN accounting_entries e ON e.id = l.entry_id
+        JOIN accounting_periods p ON p.id = e.period_id
         WHERE e.status IN ('posted','locked') AND l.account_id = $1 AND e.entry_date < $2
+          AND COALESCE(p.is_legacy, FALSE) = FALSE
       `, [account_id, from]);
     }
     const movements = await query(`
       SELECT e.entry_date, e.entry_number, e.reference, COALESCE(l.label, e.label) AS label, l.debit, l.credit
       FROM accounting_entry_lines l
       JOIN accounting_entries e ON e.id = l.entry_id
+      JOIN accounting_periods p ON p.id = e.period_id
       WHERE ${clauses.join(' AND ')}
       ORDER BY e.entry_date, e.entry_number, l.line_no
     `, params);
@@ -963,6 +981,7 @@ export const AccountingModel = {
     await ensureAccountingSchema();
     const clauses = [`e.status IN ('posted','locked')`];
     const params = [];
+    if (!period_id) clauses.push('COALESCE(p.is_legacy, FALSE) = FALSE');
     if (period_id) {
       params.push(period_id);
       clauses.push(`e.period_id = $${params.length}`);
@@ -977,14 +996,19 @@ export const AccountingModel = {
     }
     const result = await query(`
       SELECT a.id, a.code, a.name, a.mapping_key, a.balance_nature,
-             COALESCE(SUM(l.debit),0)::numeric AS debit,
-             COALESCE(SUM(l.credit),0)::numeric AS credit
+             COALESCE(s.debit, 0)::numeric AS debit,
+             COALESCE(s.credit, 0)::numeric AS credit
       FROM accounting_accounts a
-      LEFT JOIN accounting_entry_lines l ON l.account_id = a.id
-      LEFT JOIN accounting_entries e ON e.id = l.entry_id AND ${clauses.join(' AND ')}
+      LEFT JOIN (
+        SELECT l.account_id, SUM(l.debit) AS debit, SUM(l.credit) AS credit
+        FROM accounting_entry_lines l
+        JOIN accounting_entries e ON e.id = l.entry_id
+        JOIN accounting_periods p ON p.id = e.period_id
+        WHERE ${clauses.join(' AND ')}
+        GROUP BY l.account_id
+      ) s ON s.account_id = a.id
       WHERE a.is_postable = TRUE
-      GROUP BY a.id
-      HAVING COALESCE(SUM(l.debit),0) <> 0 OR COALESCE(SUM(l.credit),0) <> 0
+        AND (COALESCE(s.debit, 0) <> 0 OR COALESCE(s.credit, 0) <> 0)
       ORDER BY a.code
     `, params);
     const rows = result.rows.map((row) => ({
@@ -1010,6 +1034,7 @@ export const AccountingModel = {
     )).rows;
     const clauses = [`e.status IN ('posted','locked')`];
     const params = [];
+    if (!period_id) clauses.push('COALESCE(p.is_legacy, FALSE) = FALSE');
     if (period_id) {
       params.push(period_id);
       clauses.push(`e.period_id = $${params.length}`);
@@ -1023,14 +1048,15 @@ export const AccountingModel = {
       clauses.push(`e.entry_date <= $${params.length}`);
     }
     const sums = await query(`
-      SELECT a.mapping_key,
+      SELECT a.mapping_key, a.code, a.name,
              COALESCE(SUM(l.debit),0)::numeric AS debit,
              COALESCE(SUM(l.credit),0)::numeric AS credit
       FROM accounting_entry_lines l
       JOIN accounting_entries e ON e.id = l.entry_id
+      JOIN accounting_periods p ON p.id = e.period_id
       JOIN accounting_accounts a ON a.id = l.account_id
       WHERE ${clauses.join(' AND ')}
-      GROUP BY a.mapping_key
+      GROUP BY a.mapping_key, a.code, a.name
     `, params);
     const pnl = buildStatement(sums.rows, structures, 'pnl');
     const income = pnl.filter((s) => s.code === 'INCOME').reduce((sum, s) => money(sum + s.total), 0);
@@ -1039,20 +1065,29 @@ export const AccountingModel = {
     const balance = buildStatement(sums.rows, structures, 'balance');
     const equity = balance.find((s) => s.code === 'EQUITY');
     if (equity) {
-      equity.groups.push({ mapping_key: 'RESULT', label: 'Résultat de la période', amount: result });
+      equity.groups.push({ mapping_key: 'RESULT', label: 'Résultat de la période', amount: result, accounts: [] });
       equity.total = money(equity.total + result);
     }
-    const assets = balance.filter((s) => s.code === 'ASSET').reduce((sum, s) => money(sum + s.total), 0);
-    const liabilities = balance.filter((s) => s.code !== 'ASSET').reduce((sum, s) => money(sum + s.total), 0);
+    const actifSections = balance.filter((s) => s.code === 'ASSET');
+    const passifSections = balance.filter((s) => s.code !== 'ASSET');
+    const assets = actifSections.reduce((sum, s) => money(sum + s.total), 0);
+    const liabilities = passifSections.reduce((sum, s) => money(sum + s.total), 0);
     return {
       pnl: { sections: pnl, income, expense, result },
-      balance: { sections: balance, assets, liabilities }
+      balance: {
+        sections: balance,
+        actif: { label: 'Actif', sections: actifSections, total: assets },
+        passif: { label: 'Passif', sections: passifSections, total: liabilities },
+        assets,
+        liabilities,
+        difference: money(assets - liabilities)
+      }
     };
   },
 
   auxiliaryBalance: async ({ party_type } = {}) => {
     await ensureAccountingSchema();
-    const clauses = [`e.status IN ('posted','locked')`, 'l.party_type IS NOT NULL', 'l.party_id IS NOT NULL'];
+    const clauses = [`e.status IN ('posted','locked')`, 'l.party_type IS NOT NULL', 'l.party_id IS NOT NULL', 'COALESCE(p.is_legacy, FALSE) = FALSE'];
     const params = [];
     if (party_type) {
       params.push(party_type);
@@ -1064,6 +1099,7 @@ export const AccountingModel = {
              COALESCE(SUM(l.credit),0)::numeric AS credit
       FROM accounting_entry_lines l
       JOIN accounting_entries e ON e.id = l.entry_id
+      JOIN accounting_periods p ON p.id = e.period_id
       WHERE ${clauses.join(' AND ')}
       GROUP BY l.party_type, l.party_id
     `, params);
@@ -1079,15 +1115,22 @@ export const AccountingModel = {
     }));
   },
 
-  treasury: async ({ cash_account_id, from, to } = {}) => {
+  treasury: async ({ cash_account_id, from, to, period_id } = {}) => {
     await ensureAccountingSchema();
+    let scopeFrom = from;
+    let scopeTo = to;
+    if (period_id && !from && !to) {
+      const period = (await query('SELECT * FROM accounting_periods WHERE id = $1', [period_id])).rows[0];
+      scopeFrom = period?.start_date || undefined;
+      scopeTo = period?.end_date || undefined;
+    }
     const accounts = await AccountingModel.listCashAccounts();
     const selected = cash_account_id
       ? accounts.filter((item) => Number(item.id) === Number(cash_account_id))
       : accounts;
     const results = [];
     for (const cash of selected) {
-      const ledger = await AccountingModel.ledger({ account_id: cash.account_id, from, to });
+      const ledger = await AccountingModel.ledger({ account_id: cash.account_id, from: scopeFrom, to: scopeTo });
       const last = ledger.rows[ledger.rows.length - 1];
       results.push({
         ...cash,
@@ -1165,6 +1208,7 @@ export const AccountingModel = {
              accounting_status, accounting_error, auto_post, accounting_entry_id
       FROM finances
       WHERE COALESCE(is_quote, FALSE) = FALSE
+        AND COALESCE(archived, FALSE) = FALSE
         AND COALESCE(accounting_status, 'unposted') IN ('unposted', 'error')
         AND date_transaction::date >= $1::date
         AND date_transaction::date <= $2::date

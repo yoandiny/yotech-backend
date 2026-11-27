@@ -43,5 +43,6 @@ router.post('/posting-rules', AccountingController.upsertPostingRule);
 router.get('/pending-transactions', AccountingController.pendingTransactions);
 router.get('/ai-status', AccountingController.aiStatus);
 router.post('/suggest-posting', AccountingController.suggestPosting);
+router.post('/migrate-to-company', AccountingController.migrateToCompany);
 
 export default router;

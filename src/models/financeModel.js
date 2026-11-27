@@ -59,7 +59,7 @@ export const FinanceModel = {
       FROM finances
     `;
     const params = [];
-    let whereClause = [];
+    let whereClause = ['COALESCE(archived, FALSE) = FALSE'];
 
     if (year) {
       params.push(year);
@@ -89,6 +89,7 @@ export const FinanceModel = {
         SUM(CASE WHEN type_transaction = 'dépense' AND is_quote = FALSE THEN amount ELSE 0 END) as total_expenses,
         SUM(CASE WHEN type_transaction = 'revenu' AND is_quote = FALSE THEN amount WHEN type_transaction = 'dépense' AND is_quote = FALSE THEN -amount ELSE 0 END) as net_profit
       FROM finances
+      WHERE COALESCE(archived, FALSE) = FALSE
     `;
     const result = await query(sql);
     return result.rows[0];
@@ -101,7 +102,7 @@ export const FinanceModel = {
         SUM(CASE WHEN type_transaction = 'revenu' THEN amount ELSE 0 END) as income,
         SUM(CASE WHEN type_transaction = 'dépense' THEN amount ELSE 0 END) as expense
       FROM finances
-      WHERE is_quote = FALSE AND date_transaction >= NOW() - INTERVAL '${days} days'
+      WHERE is_quote = FALSE AND COALESCE(archived, FALSE) = FALSE AND date_transaction >= NOW() - INTERVAL '${days} days'
       GROUP BY date
       ORDER BY date ASC
     `;
@@ -110,7 +111,7 @@ export const FinanceModel = {
   },
 
   getRecentTransactions: async (limit = 10, year) => {
-    let sql = `SELECT * FROM finances WHERE is_quote = FALSE`;
+    let sql = `SELECT * FROM finances WHERE is_quote = FALSE AND COALESCE(archived, FALSE) = FALSE`;
     const params = [limit];
     
     if (year) {
@@ -145,6 +146,7 @@ export const FinanceModel = {
       FROM finances
       WHERE type_transaction = $1
         AND is_quote = FALSE
+        AND COALESCE(archived, FALSE) = FALSE
         AND EXTRACT(YEAR FROM date_transaction) = $2
         ${monthClause}
       GROUP BY COALESCE(NULLIF(TRIM(category), ''), 'Autre')
@@ -335,6 +337,35 @@ export const FinanceModel = {
     return result.rows[0];
   },
 
+  archiveBefore: async (date) => {
+    await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE`);
+    const result = await query(
+      `UPDATE finances
+       SET archived = TRUE
+       WHERE is_quote = FALSE
+         AND date_transaction < $1::date
+         AND COALESCE(archived, FALSE) = FALSE
+       RETURNING id`,
+      [date]
+    );
+    return result.rowCount ?? result.rows.length;
+  },
+
+  addCapitalTransaction: async ({ description, amount, date, cashAccountId, accountingEntryId }) => {
+    await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE`);
+    await query(`ALTER TABLE finances ADD COLUMN IF NOT EXISTS category VARCHAR(100)`);
+    const result = await query(`
+      INSERT INTO finances (
+        description, amount, total_amount, type_transaction, date_transaction,
+        category, is_quote, currency, cash_account_id, accounting_status,
+        accounting_entry_id, auto_post, archived
+      )
+      VALUES ($1, $2, $2, 'apport', $3, 'Capital social', FALSE, 'MGA', $4, 'posted', $5, FALSE, FALSE)
+      RETURNING *
+    `, [description, amount, date || new Date(), cashAccountId, accountingEntryId]);
+    return result.rows[0];
+  },
+
   deleteDraftQuote: async (id) => {
     await ensureQuotesTableExists();
 
@@ -381,31 +412,31 @@ export const FinanceModel = {
     return result.rows[0];
   },
 
-  getHistory: async (month, year) => {
+  getHistory: async (month, year, { includeArchived = true } = {}) => {
     await ensureQuotesTableExists();
 
     const params = [];
-    let financeSql = `SELECT * FROM finances WHERE is_quote = FALSE`;
-    let whereClause = [];
+    const dateWhere = [];
 
     if (month) {
       params.push(month);
-      whereClause.push(`EXTRACT(MONTH FROM date_transaction) = $${params.length}`);
+      dateWhere.push(`EXTRACT(MONTH FROM date_transaction) = $${params.length}`);
     }
     if (year) {
       params.push(year);
-      whereClause.push(`EXTRACT(YEAR FROM date_transaction) = $${params.length}`);
+      dateWhere.push(`EXTRACT(YEAR FROM date_transaction) = $${params.length}`);
     }
 
-    if (whereClause.length > 0) {
-      financeSql += ` AND ` + whereClause.join(' AND ');
+    const financeWhere = [...dateWhere];
+    if (!includeArchived) {
+      financeWhere.push(`COALESCE(archived, FALSE) = FALSE`);
     }
 
-    financeSql += ` ORDER BY date_transaction DESC`;
+    const financeSql = `SELECT * FROM finances WHERE is_quote = FALSE${financeWhere.length > 0 ? ` AND ${financeWhere.join(' AND ')}` : ''} ORDER BY date_transaction DESC`;
 
     const [financeResult, quoteResult] = await Promise.all([
       query(financeSql, params),
-      query(`SELECT * FROM quotes ${whereClause.length > 0 ? `WHERE ${whereClause.join(' AND ')}` : ''} ORDER BY date_transaction DESC`, params)
+      query(`SELECT * FROM quotes ${dateWhere.length > 0 ? `WHERE ${dateWhere.join(' AND ')}` : ''} ORDER BY date_transaction DESC`, params)
     ]);
 
     const quotes = quoteResult.rows.map((row) => ({ ...row, is_quote: true, id_transaction: row.id }));
